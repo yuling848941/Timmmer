@@ -1,0 +1,72 @@
+Timer Application License
+==========================
+
+Copyright (C) 2025 [BreadGe]
+All rights reserved.
+
+This software and its source code are proprietary and confidential.
+Unauthorized copying, distribution, or modification is strictly prohibited.
+
+THIRD-PARTY COMPONENTS
+======================
+
+This software includes the following third-party components:
+
+1. FONTS - MIT License
+   - ProFontWindows Essence.ttf
+   - License: MIT License
+   - See: fonts/MIT/LICENSE
+
+2. FONTS - SIL Open Font License (OFL) 1.1
+   - Jacquard 12 Essence.ttf
+   - Jacquarda Bastarda 9 Essence.ttf
+   - Pixelify Sans Essence.ttf
+   - Rubik Burned Essence.ttf
+   - Rubik Glitch Essence.ttf
+   - Rubik Marker Hatch Essence.ttf
+   - Rubik Puddles Essence.ttf
+   - Wallpoet Essence.ttf
+   - License: SIL Open Font License 1.1
+   - See: fonts/OFL/OFL.txt
+
+3. FONTS - SIL Open Font License (OFL) 1.1
+   - DaddyTimeMono Essence.otf
+   - DepartureMono Essence.otf
+   - Rec Mono Casual Essence.ttf
+   - Terminess Nerd Font Essence.ttf
+   - License: SIL Open Font License 1.1
+   - See: fonts/SIL/SIL Open Font License.txt
+
+SYSTEM LIBRARIES
+================
+
+This software uses standard Windows system libraries provided by Microsoft:
+- user32.dll, gdi32.dll, kernel32.dll, shell32.dll
+- comctl32.dll, comdlg32.dll, uxtheme.dll
+- winmm.dll (Windows Multimedia API including MCI interface)
+- dwmapi.dll, ole32.dll, uuid.dll
+
+These libraries are part of the Windows operating system and are freely 
+available for use in commercial applications.
+
+DISCLAIMER
+==========
+
+THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+FONT LICENSE COMPLIANCE
+=======================
+
+When distributing this software, you must include:
+1. This LICENSE.txt file
+2. All font license files in the fonts/ directory
+3. Proper attribution for all third-party fonts as required by their licenses
+
+For commercial distribution, ensure compliance with all font licenses,
+particularly the SIL Open Font License requirements.

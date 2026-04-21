@@ -1,0 +1,20 @@
+# Ignore compiled executables and objects
+*.exe
+*.o
+*.obj
+
+# Ignore build directory
+build/
+
+# Ignore backups and logs
+*.bak
+*.log
+
+# Ignore IDE/Editor specifics
+.vscode/
+.idea/
+*.suo
+*.user
+
+# Ignore config files that might be generated at runtime locally
+*.ini

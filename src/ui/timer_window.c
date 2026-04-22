@@ -365,7 +365,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                     break;
 
                 case ID_SET_TIME:
-                    ShowIntegratedDialog();
+                    ShowSetTimeDialog();
                     break;
 
                 case ID_FORMAT:
@@ -617,7 +617,7 @@ static void ShowIosContextMenu(HWND owner, int x, int y) {
 
     // === 时间设置组 ===
     g_iosMenuItems[g_iosMenuItemCount++] = (IosMenuItem){
-        IOS_MENU_ITEM_NORMAL, texts->integratedTitle, NULL, L"\uE823", TRUE, FALSE, ID_INTEGRATED
+        IOS_MENU_ITEM_NORMAL, texts->timeSettings, NULL, L"\uE823", TRUE, FALSE, ID_SET_TIME
     };
 
     // === 设置与资源组 ===

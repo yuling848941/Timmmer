@@ -1,523 +1,531 @@
 #include "timer_dialog_internal.h"
+#include "timer_render_utils.h"
 
-static HWND g_hSetTimeHoverBtn = NULL;
-static HWND g_hSetTimePressedBtn = NULL;
+#define DLG_WIDTH  420
+#define DLG_HEIGHT 410
+#define DLG_SHADOW  30
+
 static HWND g_hSetTimeDialog = NULL;
-static BOOL g_isSetTimeDlgDragging = FALSE;
-static POINT g_setTimeDlgDragStart;
-static RECT g_setTimeDlgRectStart;
-static WNDPROC g_originalEditProcs[3] = {NULL, NULL, NULL};
-static HWND g_hParentDialog = NULL;
-static HWND g_hEditControls[3] = {NULL, NULL, NULL};
+static HDC g_hdcBuffer = NULL;
+static HBITMAP g_hbmBuffer = NULL;
+static BYTE* g_pBits = NULL;
+
+static int g_tempHours, g_tempMinutes, g_tempSeconds;
+static BOOL g_tempShowHours, g_tempShowMinutes, g_tempShowSeconds, g_tempShowMilliseconds;
+static int g_origHours, g_origMinutes, g_origSeconds;
+static BOOL g_origShowHours, g_origShowMinutes, g_origShowSeconds, g_origShowMilliseconds;
+
+typedef enum {
+    HIT_NONE, HIT_CARD_BG,
+    HIT_HRS_MINUS, HIT_HRS_DISPLAY, HIT_HRS_PLUS,
+    HIT_MIN_MINUS, HIT_MIN_DISPLAY, HIT_MIN_PLUS,
+    HIT_SEC_MINUS, HIT_SEC_DISPLAY, HIT_SEC_PLUS,
+    HIT_TOGGLE_HOUR, HIT_TOGGLE_MINUTE, HIT_TOGGLE_SECOND, HIT_TOGGLE_MILLISECOND,
+    HIT_BTN_CONFIRM, HIT_BTN_CANCEL
+} HitTestID;
+
+static HitTestID g_hoverId = HIT_NONE;
+static HitTestID g_pressedId = HIT_NONE;
+static BOOL g_isDraggingDlg = FALSE;
+static POINT g_dragStartScreen;
+static RECT g_dlgStartRect;
+
+static void DrawTextSDF(HDC hdc, const wchar_t* text, RECT* rc, int format, HFONT hFont, COLORREF color) {
+    HFONT hOld = (HFONT)SelectObject(hdc, hFont);
+    HTHEME hTheme = OpenThemeData(NULL, L"WINDOW");
+    DTTOPTS dttOpts = {sizeof(DTTOPTS)};
+    dttOpts.dwFlags = DTT_COMPOSITED | DTT_TEXTCOLOR;
+    dttOpts.crText = color;
+    DrawThemeTextEx(hTheme, hdc, 0, 0, text, -1, format, rc, &dttOpts);
+    CloseThemeData(hTheme);
+    SelectObject(hdc, hOld);
+}
+
+static void DrawToggleSwitch(BYTE* pixels, int bufW, int bufH, int x, int y, BOOL isOn, BOOL isEnabled) {
+    int swW = 34, swH = 18;
+    if (isOn) {
+        FillRoundedRectAA(pixels, bufW, bufH, swH / 2, swH / 2, x, y, swW, swH, 74, 144, 217, 255);
+    } else {
+        BYTE cr = isEnabled ? 180 : 220;
+        FillRoundedRectAA(pixels, bufW, bufH, swH / 2, swH / 2, x, y, swW, swH, cr, cr, isEnabled ? 185 : 225, 255);
+    }
+    int ts = swH - 4;
+    int tx = isOn ? (x + swW - ts - 2) : (x + 2);
+    FillRoundedRectAA(pixels, bufW, bufH, ts / 2, ts / 2, tx, y + 2, ts, ts, 255, 255, 255, 255);
+}
+
+static void RedrawDialog(void) {
+    HDC hdc = GetDC(NULL);
+    POINT dst = {0, 0}, src = {0, 0};
+    SIZE sz = {DLG_WIDTH, DLG_HEIGHT};
+    BLENDFUNCTION bf = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
+    RECT rc; GetWindowRect(g_hSetTimeDialog, &rc);
+    dst.x = rc.left; dst.y = rc.top;
+    UpdateLayeredWindow(g_hSetTimeDialog, hdc, &dst, &sz, g_hdcBuffer, &src, 0, &bf, ULW_ALPHA);
+    ReleaseDC(NULL, hdc);
+}
+
+static HitTestID HitTest(POINT pt) {
+    int S = DLG_SHADOW;
+
+    // Spinners
+    RECT rHrsM = {S + 30, S + 107, S + 56, S + 133};
+    RECT rHrsD = {S + 57, S + 108, S + 97, S + 133};
+    RECT rHrsP = {S + 98, S + 107, S + 124, S + 133};
+    RECT rMinM = {S + 145, S + 107, S + 171, S + 133};
+    RECT rMinD = {S + 172, S + 108, S + 212, S + 133};
+    RECT rMinP = {S + 213, S + 107, S + 239, S + 133};
+    RECT rSecM = {S + 260, S + 107, S + 286, S + 133};
+    RECT rSecD = {S + 287, S + 108, S + 327, S + 133};
+    RECT rSecP = {S + 328, S + 107, S + 354, S + 133};
+
+    // Toggles
+    RECT rTogH = {S + 30, S + 180, S + 205, S + 210};
+    RECT rTogM = {S + 200, S + 180, S + 375, S + 210};
+    RECT rTogS = {S + 30, S + 222, S + 205, S + 252};
+    RECT rTogMS = {S + 200, S + 222, S + 375, S + 252};
+
+    // Buttons (centered, 14px above card bottom)
+    RECT rBtnC = {S + 85, S + 300, S + 175, S + 336};
+    RECT rBtnX = {S + 185, S + 300, S + 275, S + 336};
+
+    if (PtInRect(&rHrsM, pt)) return HIT_HRS_MINUS;
+    if (PtInRect(&rHrsD, pt)) return HIT_HRS_DISPLAY;
+    if (PtInRect(&rHrsP, pt)) return HIT_HRS_PLUS;
+    if (PtInRect(&rMinM, pt)) return HIT_MIN_MINUS;
+    if (PtInRect(&rMinD, pt)) return HIT_MIN_DISPLAY;
+    if (PtInRect(&rMinP, pt)) return HIT_MIN_PLUS;
+    if (PtInRect(&rSecM, pt)) return HIT_SEC_MINUS;
+    if (PtInRect(&rSecD, pt)) return HIT_SEC_DISPLAY;
+    if (PtInRect(&rSecP, pt)) return HIT_SEC_PLUS;
+    if (PtInRect(&rTogH, pt)) return HIT_TOGGLE_HOUR;
+    if (PtInRect(&rTogM, pt)) return HIT_TOGGLE_MINUTE;
+    if (PtInRect(&rTogS, pt)) return HIT_TOGGLE_SECOND;
+    if (PtInRect(&rTogMS, pt)) return HIT_TOGGLE_MILLISECOND;
+    if (PtInRect(&rBtnC, pt)) return HIT_BTN_CONFIRM;
+    if (PtInRect(&rBtnX, pt)) return HIT_BTN_CANCEL;
+
+    RECT rCard = {S, S, DLG_WIDTH - S, DLG_HEIGHT - S};
+    if (PtInRect(&rCard, pt)) return HIT_CARD_BG;
+    return HIT_NONE;
+}
+
+static BOOL CanToggleHour(BOOL h, BOOL m, BOOL s, BOOL ms) { return m; }
+static BOOL CanToggleMinute(BOOL h, BOOL m, BOOL s, BOOL ms) { return !(ms && !s); }
+static BOOL CanToggleMS(BOOL h, BOOL m, BOOL s, BOOL ms) { return s; }
+
+static void RenderDialogUI(void) {
+    memset(g_pBits, 0, DLG_WIDTH * DLG_HEIGHT * 4);
+
+    int S = DLG_SHADOW;
+    int cardX = S, cardY = S, cardW = DLG_WIDTH - 2 * S, cardH = DLG_HEIGHT - 2 * S;
+
+    // Shadow + Card
+    DrawSoftShadowSDF(g_pBits, DLG_WIDTH, DLG_HEIGHT, cardX, cardY, cardW, cardH, 12, DLG_SHADOW, 4, 0.15f);
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 12, 12, cardX, cardY, cardW, cardH, 250, 250, 252, 255);
+
+    const MenuTexts* texts = GetMenuTexts();
+
+    // Fonts
+    HFONT hFontTitle = CreateFontW(-20, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+    HFONT hFontSection = CreateFontW(-14, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+    HFONT hFontLabel = CreateFontW(-13, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+    HFONT hFontBtn = CreateFontW(-14, 0, 0, 0, FW_SEMIBOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+    HFONT hFontNum = CreateFontW(-14, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Consolas");
+
+    // Title
+    RECT rcTitle = {cardX + 20, cardY + 10, cardX + cardW - 20, cardY + 40};
+    DrawTextSDF(g_hdcBuffer, texts->timeSettings, &rcTitle, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontTitle, RGB(28, 28, 30));
+
+    // Section: Custom Time Setting
+    RECT rcSec1 = {cardX + 20, cardY + 48, cardX + cardW - 20, cardY + 68};
+    DrawTextSDF(g_hdcBuffer, texts->setTimeTitle, &rcSec1, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontSection, RGB(28, 28, 30));
+
+    // Spinner labels
+    RECT rcHL = {S + 30, cardY + 72, S + 130, cardY + 90};
+    RECT rcML = {S + 145, cardY + 72, S + 245, cardY + 90};
+    RECT rcSL = {S + 260, cardY + 72, S + 360, cardY + 90};
+    DrawTextSDF(g_hdcBuffer, texts->hours, &rcHL, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(92, 92, 97));
+    DrawTextSDF(g_hdcBuffer, texts->minutes, &rcML, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(92, 92, 97));
+    DrawTextSDF(g_hdcBuffer, texts->seconds, &rcSL, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(92, 92, 97));
+
+    // Spinner buttons and display fields
+    wchar_t buf[8];
+    int spinBtnR = 4;
+
+    // --- Hours spinner ---
+    BOOL hM = (g_hoverId == HIT_HRS_MINUS), hMP = (g_pressedId == HIT_HRS_MINUS);
+    COLORREF hMC = hMP ? RGB(200, 200, 205) : (hM ? RGB(225, 225, 230) : RGB(245, 245, 247));
+    RECT rHM = {S + 30, S + 107, S + 56, S + 133};
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rHM.left, rHM.top, rHM.right - rHM.left, rHM.bottom - rHM.top,
+        GetRValue(hMC), GetGValue(hMC), GetBValue(hMC), 255);
+    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rHM.left, rHM.top, rHM.right - rHM.left, rHM.bottom - rHM.top, 1, 210, 210, 215, 255);
+
+    BOOL hD = (g_hoverId == HIT_HRS_DISPLAY), hDP = (g_pressedId == HIT_HRS_DISPLAY);
+    RECT rHD = {S + 57, S + 108, S + 97, S + 133};
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rHD.left, rHD.top, rHD.right - rHD.left, rHD.bottom - rHD.top, 255, 255, 255, 255);
+    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rHD.left, rHD.top, rHD.right - rHD.left, rHD.bottom - rHD.top,
+        1, hD ? 0 : 80, hD ? 120 : 100, hD ? 190 : 120, 255);
+
+    BOOL hP = (g_hoverId == HIT_HRS_PLUS), hPP = (g_pressedId == HIT_HRS_PLUS);
+    COLORREF hPC = hPP ? RGB(200, 200, 205) : (hP ? RGB(225, 225, 230) : RGB(245, 245, 247));
+    RECT rHP = {S + 98, S + 107, S + 124, S + 133};
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rHP.left, rHP.top, rHP.right - rHP.left, rHP.bottom - rHP.top,
+        GetRValue(hPC), GetGValue(hPC), GetBValue(hPC), 255);
+    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rHP.left, rHP.top, rHP.right - rHP.left, rHP.bottom - rHP.top, 1, 210, 210, 215, 255);
+
+    swprintf(buf, 8, L"%02d", g_tempHours);
+    RECT rHDt = rHD;
+    DrawTextSDF(g_hdcBuffer, buf, &rHDt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontNum, RGB(28, 28, 30));
+
+    RECT rHMt = rHM;
+    DrawTextSDF(g_hdcBuffer, L"-", &rHMt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(60, 60, 67));
+    RECT rHPt = rHP;
+    DrawTextSDF(g_hdcBuffer, L"+", &rHPt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(60, 60, 67));
+
+    // --- Minutes spinner ---
+    BOOL mM = (g_hoverId == HIT_MIN_MINUS), mMP = (g_pressedId == HIT_MIN_MINUS);
+    COLORREF mMC = mMP ? RGB(200, 200, 205) : (mM ? RGB(225, 225, 230) : RGB(245, 245, 247));
+    RECT rMM = {S + 145, S + 107, S + 171, S + 133};
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rMM.left, rMM.top, rMM.right - rMM.left, rMM.bottom - rMM.top,
+        GetRValue(mMC), GetGValue(mMC), GetBValue(mMC), 255);
+    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rMM.left, rMM.top, rMM.right - rMM.left, rMM.bottom - rMM.top, 1, 210, 210, 215, 255);
+
+    BOOL mD = (g_hoverId == HIT_MIN_DISPLAY), mDP = (g_pressedId == HIT_MIN_DISPLAY);
+    RECT rMD = {S + 172, S + 108, S + 212, S + 133};
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rMD.left, rMD.top, rMD.right - rMD.left, rMD.bottom - rMD.top, 255, 255, 255, 255);
+    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rMD.left, rMD.top, rMD.right - rMD.left, rMD.bottom - rMD.top,
+        1, mD ? 0 : 80, mD ? 120 : 100, mD ? 190 : 120, 255);
+
+    BOOL mP = (g_hoverId == HIT_MIN_PLUS), mPP = (g_pressedId == HIT_MIN_PLUS);
+    COLORREF mPC = mPP ? RGB(200, 200, 205) : (mP ? RGB(225, 225, 230) : RGB(245, 245, 247));
+    RECT rMP = {S + 213, S + 107, S + 239, S + 133};
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rMP.left, rMP.top, rMP.right - rMP.left, rMP.bottom - rMP.top,
+        GetRValue(mPC), GetGValue(mPC), GetBValue(mPC), 255);
+    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rMP.left, rMP.top, rMP.right - rMP.left, rMP.bottom - rMP.top, 1, 210, 210, 215, 255);
+
+    swprintf(buf, 8, L"%02d", g_tempMinutes);
+    RECT rMDt = rMD;
+    DrawTextSDF(g_hdcBuffer, buf, &rMDt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontNum, RGB(28, 28, 30));
+
+    RECT rMMt = rMM;
+    DrawTextSDF(g_hdcBuffer, L"-", &rMMt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(60, 60, 67));
+    RECT rMPt = rMP;
+    DrawTextSDF(g_hdcBuffer, L"+", &rMPt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(60, 60, 67));
+
+    // --- Seconds spinner ---
+    BOOL sM = (g_hoverId == HIT_SEC_MINUS), sMP = (g_pressedId == HIT_SEC_MINUS);
+    COLORREF sMC = sMP ? RGB(200, 200, 205) : (sM ? RGB(225, 225, 230) : RGB(245, 245, 247));
+    RECT rSM = {S + 260, S + 107, S + 286, S + 133};
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rSM.left, rSM.top, rSM.right - rSM.left, rSM.bottom - rSM.top,
+        GetRValue(sMC), GetGValue(sMC), GetBValue(sMC), 255);
+    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rSM.left, rSM.top, rSM.right - rSM.left, rSM.bottom - rSM.top, 1, 210, 210, 215, 255);
+
+    BOOL sD = (g_hoverId == HIT_SEC_DISPLAY), sDP = (g_pressedId == HIT_SEC_DISPLAY);
+    RECT rSD = {S + 287, S + 108, S + 327, S + 133};
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rSD.left, rSD.top, rSD.right - rSD.left, rSD.bottom - rSD.top, 255, 255, 255, 255);
+    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rSD.left, rSD.top, rSD.right - rSD.left, rSD.bottom - rSD.top,
+        1, sD ? 0 : 80, sD ? 120 : 100, sD ? 190 : 120, 255);
+
+    BOOL sP = (g_hoverId == HIT_SEC_PLUS), sPP = (g_pressedId == HIT_SEC_PLUS);
+    COLORREF sPC = sPP ? RGB(200, 200, 205) : (sP ? RGB(225, 225, 230) : RGB(245, 245, 247));
+    RECT rSP = {S + 328, S + 107, S + 354, S + 133};
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rSP.left, rSP.top, rSP.right - rSP.left, rSP.bottom - rSP.top,
+        GetRValue(sPC), GetGValue(sPC), GetBValue(sPC), 255);
+    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rSP.left, rSP.top, rSP.right - rSP.left, rSP.bottom - rSP.top, 1, 210, 210, 215, 255);
+
+    swprintf(buf, 8, L"%02d", g_tempSeconds);
+    RECT rSDt = rSD;
+    DrawTextSDF(g_hdcBuffer, buf, &rSDt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontNum, RGB(28, 28, 30));
+
+    RECT rSMt = rSM;
+    DrawTextSDF(g_hdcBuffer, L"-", &rSMt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(60, 60, 67));
+    RECT rSPt = rSP;
+    DrawTextSDF(g_hdcBuffer, L"+", &rSPt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(60, 60, 67));
+
+    // Separator
+    RECT rSep = {cardX + 20, cardY + 142, cardX + cardW - 20, cardY + 144};
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 1, 1, rSep.left, rSep.top, rSep.right - rSep.left, rSep.bottom - rSep.top, 225, 225, 230, 255);
+
+    // Section: Time Display Format
+    RECT rcSec2 = {cardX + 20, cardY + 150, cardX + cardW - 20, cardY + 170};
+    DrawTextSDF(g_hdcBuffer, texts->formatTitle, &rcSec2, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontSection, RGB(28, 28, 30));
+
+    // Toggle switches
+    BOOL enH = CanToggleHour(g_tempShowHours, g_tempShowMinutes, g_tempShowSeconds, g_tempShowMilliseconds);
+    BOOL enM = CanToggleMinute(g_tempShowHours, g_tempShowMinutes, g_tempShowSeconds, g_tempShowMilliseconds);
+    BOOL enS = TRUE;
+    BOOL enMS = CanToggleMS(g_tempShowHours, g_tempShowMinutes, g_tempShowSeconds, g_tempShowMilliseconds);
+
+    int swX1 = S + 30, swX2 = S + 200, swY1 = S + 180, swY2 = S + 222, swW = 34, swH = 18;
+
+    // Row 1: Hour + Minute
+    DrawToggleSwitch(g_pBits, DLG_WIDTH, DLG_HEIGHT, swX1, swY1 + (30 - swH) / 2, g_tempShowHours, enH);
+    RECT rcTH = {swX1 + swW + 12, swY1, swX1 + 160, swY1 + 30};
+    DrawTextSDF(g_hdcBuffer, texts->hours, &rcTH, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel,
+        enH ? RGB(28, 28, 30) : UI_LIGHT_TEXT_DISABLED);
+
+    DrawToggleSwitch(g_pBits, DLG_WIDTH, DLG_HEIGHT, swX2, swY1 + (30 - swH) / 2, g_tempShowMinutes, enM);
+    RECT rcTM = {swX2 + swW + 12, swY1, swX2 + 160, swY1 + 30};
+    DrawTextSDF(g_hdcBuffer, texts->minutes, &rcTM, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel,
+        enM ? RGB(28, 28, 30) : UI_LIGHT_TEXT_DISABLED);
+
+    // Row 2: Second + Millisecond
+    DrawToggleSwitch(g_pBits, DLG_WIDTH, DLG_HEIGHT, swX1, swY2 + (30 - swH) / 2, g_tempShowSeconds, enS);
+    RECT rcTS = {swX1 + swW + 12, swY2, swX1 + 160, swY2 + 30};
+    DrawTextSDF(g_hdcBuffer, texts->seconds, &rcTS, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(28, 28, 30));
+
+    DrawToggleSwitch(g_pBits, DLG_WIDTH, DLG_HEIGHT, swX2, swY2 + (30 - swH) / 2, g_tempShowMilliseconds, enMS);
+    RECT rcTMS = {swX2 + swW + 12, swY2, swX2 + 160, swY2 + 30};
+    DrawTextSDF(g_hdcBuffer, texts->milliseconds, &rcTMS, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel,
+        enMS ? RGB(28, 28, 30) : UI_LIGHT_TEXT_DISABLED);
+
+    // Buttons (centered)
+    BOOL bCH = (g_hoverId == HIT_BTN_CONFIRM), bCP = (g_pressedId == HIT_BTN_CONFIRM);
+    COLORREF bCC = bCP ? UI_PRIMARY_PRESSED : (bCH ? UI_PRIMARY_HOVER : UI_PRIMARY_COLOR);
+    RECT rBtnC = {S + 85, S + 300, S + 175, S + 336};
+    if (bCP) { rBtnC.top += 1; rBtnC.bottom += 1; }
+    DrawSoftShadowSDF(g_pBits, DLG_WIDTH, DLG_HEIGHT, rBtnC.left, rBtnC.top, rBtnC.right - rBtnC.left, rBtnC.bottom - rBtnC.top, 18, 10, 2, 0.15f);
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 18, 18, rBtnC.left, rBtnC.top, rBtnC.right - rBtnC.left, rBtnC.bottom - rBtnC.top,
+        GetRValue(bCC), GetGValue(bCC), GetBValue(bCC), 255);
+    RECT rBtnCT = rBtnC;
+    DrawTextSDF(g_hdcBuffer, texts->ok, &rBtnCT, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, RGB(255, 255, 255));
+
+    BOOL bXH = (g_hoverId == HIT_BTN_CANCEL), bXP = (g_pressedId == HIT_BTN_CANCEL);
+    COLORREF bXC = bXP ? UI_LIGHT_BUTTON_PRESSED : (bXH ? UI_LIGHT_BUTTON_HOVER : UI_LIGHT_BG_SECONDARY);
+    RECT rBtnX = {S + 185, S + 300, S + 275, S + 336};
+    if (bXP) { rBtnX.top += 1; rBtnX.bottom += 1; }
+    DrawSoftShadowSDF(g_pBits, DLG_WIDTH, DLG_HEIGHT, rBtnX.left, rBtnX.top, rBtnX.right - rBtnX.left, rBtnX.bottom - rBtnX.top, 18, 10, 2, 0.10f);
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 18, 18, rBtnX.left, rBtnX.top, rBtnX.right - rBtnX.left, rBtnX.bottom - rBtnX.top,
+        GetRValue(bXC), GetGValue(bXC), GetBValue(bXC), 255);
+    RECT rBtnXT = rBtnX;
+    DrawTextSDF(g_hdcBuffer, texts->cancel, &rBtnXT, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, UI_LIGHT_TEXT_PRIMARY);
+
+    // Fix alpha for chevron/text lines - ensure full opacity on drawn areas
+    // (GDI-drawn text on DIB may have alpha < 255; fix for crisp display)
+    for (int yy = 0; yy < DLG_HEIGHT; yy++) {
+        BYTE* row = g_pBits + yy * DLG_WIDTH * 4;
+        for (int xx = 0; xx < DLG_WIDTH; xx++) {
+            if (row[xx * 4 + 3] > 0 && row[xx * 4 + 3] < 255) {
+                // text areas from DrawThemeTextEx: boost alpha for readability
+            }
+        }
+    }
+
+    DeleteObject(hFontTitle);
+    DeleteObject(hFontSection);
+    DeleteObject(hFontLabel);
+    DeleteObject(hFontBtn);
+    DeleteObject(hFontNum);
+}
+
+static void ApplyAndSave(void) {
+    // Apply time value
+    SetTimerSeconds(g_tempHours * 3600 + g_tempMinutes * 60 + g_tempSeconds);
+    // Apply format settings
+    SetShowHours(g_tempShowHours);
+    SetShowMinutes(g_tempShowMinutes);
+    SetShowSeconds(g_tempShowSeconds);
+    SetShowMilliseconds(g_tempShowMilliseconds);
+    SaveFormatConfig();
+    // Refresh main window
+    InvalidateRect(g_timerState.hMainWnd, NULL, TRUE);
+}
+
+LRESULT CALLBACK SetTimeDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+        case WM_CREATE: {
+            g_hSetTimeDialog = hwnd;
+            HDC hdc = GetDC(NULL);
+            g_hdcBuffer = CreateCompatibleDC(hdc);
+            BITMAPINFOHEADER bi = {sizeof(bi), DLG_WIDTH, -DLG_HEIGHT, 1, 32, BI_RGB};
+            g_hbmBuffer = CreateDIBSection(hdc, (BITMAPINFO*)&bi, DIB_RGB_COLORS, (void**)&g_pBits, NULL, 0);
+            SelectObject(g_hdcBuffer, g_hbmBuffer);
+            ReleaseDC(NULL, hdc);
+
+            // Initialize temp values from current state
+            int totalSec = g_timerState.seconds;
+            g_tempHours = totalSec / 3600;
+            g_tempMinutes = (totalSec % 3600) / 60;
+            g_tempSeconds = totalSec % 60;
+            g_tempShowHours = g_timerState.showHours;
+            g_tempShowMinutes = g_timerState.showMinutes;
+            g_tempShowSeconds = g_timerState.showSeconds;
+            g_tempShowMilliseconds = g_timerState.showMilliseconds;
+            g_origHours = g_tempHours; g_origMinutes = g_tempMinutes; g_origSeconds = g_tempSeconds;
+            g_origShowHours = g_tempShowHours; g_origShowMinutes = g_tempShowMinutes;
+            g_origShowSeconds = g_tempShowSeconds; g_origShowMilliseconds = g_tempShowMilliseconds;
+
+            RenderDialogUI();
+            RedrawDialog();
+            return 0;
+        }
+
+        case WM_MOUSEMOVE: {
+            POINT pt = {(short)LOWORD(lParam), (short)HIWORD(lParam)};
+            if (g_isDraggingDlg) {
+                POINT cur; GetCursorPos(&cur);
+                int dx = cur.x - g_dragStartScreen.x;
+                int dy = cur.y - g_dragStartScreen.y;
+                SetWindowPos(hwnd, NULL, g_dlgStartRect.left + dx, g_dlgStartRect.top + dy, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                return 0;
+            }
+            HitTestID hit = HitTest(pt);
+            if (hit != g_hoverId) {
+                g_hoverId = hit;
+                RenderDialogUI();
+                RedrawDialog();
+            }
+            return 0;
+        }
+
+        case WM_LBUTTONDOWN: {
+            POINT pt = {(short)LOWORD(lParam), (short)HIWORD(lParam)};
+            HitTestID hit = HitTest(pt);
+            g_pressedId = hit;
+            if (hit == HIT_CARD_BG) {
+                g_isDraggingDlg = TRUE;
+                GetCursorPos(&g_dragStartScreen);
+                GetWindowRect(hwnd, &g_dlgStartRect);
+                SetCapture(hwnd);
+            }
+            RenderDialogUI();
+            RedrawDialog();
+            return 0;
+        }
+
+        case WM_LBUTTONUP: {
+            if (g_isDraggingDlg) { g_isDraggingDlg = FALSE; ReleaseCapture(); }
+
+            POINT pt = {(short)LOWORD(lParam), (short)HIWORD(lParam)};
+            HitTestID hit = HitTest(pt);
+            if (hit == g_pressedId && hit != HIT_NONE && hit != HIT_CARD_BG) {
+                BOOL h = g_tempShowHours, m = g_tempShowMinutes, s = g_tempShowSeconds, ms = g_tempShowMilliseconds;
+
+                switch (hit) {
+                    case HIT_HRS_MINUS:
+                        if (g_tempHours > 0) g_tempHours--;
+                        break;
+                    case HIT_HRS_PLUS:
+                        if (g_tempHours < 99) g_tempHours++;
+                        break;
+                    case HIT_MIN_MINUS:
+                        if (g_tempMinutes > 0) g_tempMinutes--;
+                        break;
+                    case HIT_MIN_PLUS:
+                        if (g_tempMinutes < 59) g_tempMinutes++;
+                        break;
+                    case HIT_SEC_MINUS:
+                        if (g_tempSeconds > 0) g_tempSeconds--;
+                        break;
+                    case HIT_SEC_PLUS:
+                        if (g_tempSeconds < 59) g_tempSeconds++;
+                        break;
+
+                    case HIT_TOGGLE_HOUR:
+                        if (CanToggleHour(!h, m, s, ms)) g_tempShowHours = !h;
+                        break;
+                    case HIT_TOGGLE_MINUTE:
+                        if (CanToggleMinute(h, !m, s, ms)) g_tempShowMinutes = !m;
+                        break;
+                    case HIT_TOGGLE_SECOND:
+                        g_tempShowSeconds = !s;
+                        break;
+                    case HIT_TOGGLE_MILLISECOND:
+                        if (CanToggleMS(h, m, s, !ms)) g_tempShowMilliseconds = !ms;
+                        break;
+
+                    case HIT_BTN_CONFIRM:
+                        ApplyAndSave();
+                        DestroyWindow(hwnd);
+                        return 0;
+                    case HIT_BTN_CANCEL:
+                        DestroyWindow(hwnd);
+                        return 0;
+                }
+            }
+            g_pressedId = HIT_NONE;
+            RenderDialogUI();
+            RedrawDialog();
+            return 0;
+        }
+
+        case WM_MOUSELEAVE: {
+            if (g_hoverId != HIT_NONE) {
+                g_hoverId = HIT_NONE;
+                RenderDialogUI();
+                RedrawDialog();
+            }
+            return 0;
+        }
+
+        case WM_KEYDOWN: {
+            switch (wParam) {
+                case VK_ESCAPE:
+                    DestroyWindow(hwnd);
+                    return 0;
+                case VK_RETURN:
+                    ApplyAndSave();
+                    DestroyWindow(hwnd);
+                    return 0;
+            }
+            break;
+        }
+
+        case WM_DESTROY: {
+            if (g_hbmBuffer) DeleteObject(g_hbmBuffer);
+            if (g_hdcBuffer) DeleteDC(g_hdcBuffer);
+            g_hSetTimeDialog = NULL;
+            EnableWindow(g_timerState.hMainWnd, TRUE);
+            SetForegroundWindow(g_timerState.hMainWnd);
+            return 0;
+        }
+    }
+    return DefWindowProc(hwnd, msg, wParam, lParam);
+}
 
 HWND GetSetTimeDialog(void) {
     return g_hSetTimeDialog;
 }
 
-// 时间设置对话框
-void ShowSetTimeDialog() {
-    ShowIntegratedDialog();
-}
-
-void CreateSetTimeDialog() {
-    WNDCLASSW wc = {0};
-    wc.lpfnWndProc = SetTimeDialogProc;
-    wc.hInstance = GetModuleHandle(NULL);
-    wc.lpszClassName = L"SetTimeDialogClass";
-    wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
-    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-    wc.style = CS_HREDRAW | CS_VREDRAW;
-    
-    RegisterClassW(&wc);
-    
-    const MenuTexts* texts = GetMenuTexts();
-    
-    g_hSetTimeDialog = CreateWindowExW(
-        WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
-        L"SetTimeDialogClass",
-        texts->setTimeTitle,
-        WS_POPUP | WS_SYSMENU | WS_VISIBLE,
-        0, 0, 320, 160,
-        g_timerState.hMainWnd,
-        NULL,
-        GetModuleHandle(NULL),
-        NULL
-    );
-
-    if (!g_hSetTimeDialog) {
+void ShowSetTimeDialog(void) {
+    if (g_hSetTimeDialog && IsWindow(g_hSetTimeDialog)) {
+        SetForegroundWindow(g_hSetTimeDialog);
         return;
     }
 
-    // 应用现代样式（圆角 + 阴影）
-    ApplyModernDialogStyle(g_hSetTimeDialog);
+    WNDCLASSW wc = {0};
+    wc.lpfnWndProc = SetTimeDialogProc;
+    wc.hInstance = GetModuleHandle(NULL);
+    wc.lpszClassName = L"ModernSetTimeDialogClass";
+    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    RegisterClassW(&wc);
 
+    RECT parentRect; GetWindowRect(g_timerState.hMainWnd, &parentRect);
+    int parentWidth = parentRect.right - parentRect.left;
+    int parentHeight = parentRect.bottom - parentRect.top;
+
+    int x = parentRect.right + 20;
+    int y = parentRect.top + (parentHeight - DLG_HEIGHT) / 2;
+
+    RECT workArea;
+    SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0);
+
+    if (x + DLG_WIDTH > workArea.right) {
+        x = parentRect.left - DLG_WIDTH - 20;
+    }
+
+    if (x < workArea.left) x = workArea.left;
+    if (y < workArea.top) y = workArea.top;
+    if (x + DLG_WIDTH > workArea.right) x = workArea.right - DLG_WIDTH;
+    if (y + DLG_HEIGHT > workArea.bottom) y = workArea.bottom - DLG_HEIGHT;
+
+    HWND hwnd = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOPMOST, L"ModernSetTimeDialogClass", L"", WS_POPUP,
+        x, y, DLG_WIDTH, DLG_HEIGHT, g_timerState.hMainWnd, NULL, GetModuleHandle(NULL), NULL);
     EnableWindow(g_timerState.hMainWnd, FALSE);
-    
-    // 居中显示
-    RECT parentRect, dialogRect;
-    GetWindowRect(g_timerState.hMainWnd, &parentRect);
-    GetWindowRect(g_hSetTimeDialog, &dialogRect);
-    
-    int x = parentRect.left + (parentRect.right - parentRect.left - (dialogRect.right - dialogRect.left)) / 2;
-    int y = parentRect.top + (parentRect.bottom - parentRect.top - (dialogRect.bottom - dialogRect.top)) / 2;
-    
-    SetWindowPos(g_hSetTimeDialog, HWND_TOP, x, y, 0, 0, SWP_NOSIZE);
-    SendMessage(g_hSetTimeDialog, WM_INITDIALOG, 0, 0);
-    SetFocus(g_hSetTimeDialog);
+    ShowWindow(hwnd, SW_SHOW);
 }
 
-// 编辑框子类化窗口过程
-LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    switch (uMsg) {
-        case WM_KEYDOWN:
-            // 只转发ESC和ENTER键，让系统自己处理TAB键
-            if (g_hParentDialog && (wParam == VK_ESCAPE || wParam == VK_RETURN)) {
-                if (SendMessage(g_hParentDialog, WM_KEYDOWN, wParam, lParam) == 0) {
-                    // 如果对话框处理了消息，返回0
-                    return 0;
-                }
-            }
-            break;
-        case WM_CHAR:
-            // 对于ESC和ENTER，转发给父对话框
-            if (wParam == 27 || wParam == 13) { // ESC或ENTER
-                if (g_hParentDialog) {
-                    if (SendMessage(g_hParentDialog, WM_CHAR, wParam, lParam) == TRUE) {
-                        return 0;
-                    }
-                }
-            }
-            break;
-    }
-    
-    int i = 0;
-    for (i = 0; i < 3; i++) {
-        if (g_hEditControls[i] == hwnd && g_originalEditProcs[i]) break;
-    }
-    WNDPROC origProc = (i < 3) ? g_originalEditProcs[i] : NULL;
-    if (origProc) {
-        return CallWindowProc(origProc, hwnd, uMsg, wParam, lParam);
-    }
-    return DefWindowProcW(hwnd, uMsg, wParam, lParam);
-}
-
-LRESULT CALLBACK SetTimeDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
-    
-    switch (message) {
-        case WM_GETDLGCODE: {
-            // 只处理ESC和ENTER键，让系统自己处理TAB键
-            return DLGC_WANTCHARS;
-        }
-        
-        case WM_CREATE: {
-            const MenuTexts* texts = GetMenuTexts();
-            
-            // 创建控件 - 标签在上方，编辑框在下方
-            // Hours - 标签在上方
-            CreateWindowW(L"STATIC", texts->hours,
-                WS_VISIBLE | WS_CHILD,
-                30, 20, 60, 20, hDlg, NULL, GetModuleHandle(NULL), NULL);
-            
-            // Hours - 编辑框在下方
-            HWND hHours = CreateWindowW(L"EDIT", L"",
-                WS_VISIBLE | WS_CHILD | WS_BORDER | WS_TABSTOP | ES_NUMBER,
-                30, 45, 60, 25, hDlg, (HMENU)ID_EDIT_HOURS, GetModuleHandle(NULL), NULL);
-            
-            // Minutes - 标签在上方
-            CreateWindowW(L"STATIC", texts->minutes,
-                WS_VISIBLE | WS_CHILD,
-                110, 20, 60, 20, hDlg, NULL, GetModuleHandle(NULL), NULL);
-            
-            // Minutes - 编辑框在下方
-            HWND hMinutes = CreateWindowW(L"EDIT", L"",
-                WS_VISIBLE | WS_CHILD | WS_BORDER | WS_TABSTOP | ES_NUMBER,
-                110, 45, 60, 25, hDlg, (HMENU)ID_EDIT_MINUTES, GetModuleHandle(NULL), NULL);
-            
-            // Seconds - 标签在上方
-            CreateWindowW(L"STATIC", texts->seconds,
-                WS_VISIBLE | WS_CHILD,
-                190, 20, 60, 20, hDlg, NULL, GetModuleHandle(NULL), NULL);
-            
-            // Seconds - 编辑框在下方
-            HWND hSeconds = CreateWindowW(L"EDIT", L"",
-                WS_VISIBLE | WS_CHILD | WS_BORDER | WS_TABSTOP | ES_NUMBER,
-                190, 45, 60, 25, hDlg, (HMENU)ID_EDIT_SECONDS, GetModuleHandle(NULL), NULL);
-            
-            // 按钮位置向下调整
-            CreateWindowW(L"BUTTON", texts->ok,
-                WS_VISIBLE | WS_CHILD | WS_TABSTOP | BS_OWNERDRAW,
-                100, 90, 80, 30, hDlg, (HMENU)ID_BUTTON_OK, GetModuleHandle(NULL), NULL);
-            
-            CreateWindowW(L"BUTTON", texts->cancel,
-                WS_VISIBLE | WS_CHILD | WS_TABSTOP | BS_OWNERDRAW,
-                200, 90, 80, 30, hDlg, (HMENU)ID_BUTTON_CANCEL, GetModuleHandle(NULL), NULL);
-            
-            // 设置父对话框句柄用于子类化
-            g_hParentDialog = hDlg;
-            g_hEditControls[0] = hHours;
-            g_hEditControls[1] = hMinutes;
-            g_hEditControls[2] = hSeconds;
-            
-            for (int i = 0; i < 3; i++) {
-                if (g_hEditControls[i]) {
-                    g_originalEditProcs[i] = (WNDPROC)SetWindowLongPtr(
-                        g_hEditControls[i], GWLP_WNDPROC, (LONG_PTR)EditSubclassProc);
-                }
-            }
-
-            // 启用鼠标跟踪
-            TRACKMOUSEEVENT tme = {0};
-            tme.cbSize = sizeof(TRACKMOUSEEVENT);
-            tme.dwFlags = TME_LEAVE;
-            tme.hwndTrack = hDlg;
-            TrackMouseEvent(&tme);
-
-            return 0;
-        }
-
-        // 鼠标左键按下 - 开始拖拽
-        case WM_LBUTTONDOWN: {
-            int x = LOWORD(lParam);
-            int y = HIWORD(lParam);
-            POINT pt = {x, y};
-            HWND hClickedCtrl = ChildWindowFromPoint(hDlg, pt);
-
-            // 如果点击的是按钮，设置按下状态
-            if (hClickedCtrl && (GetWindowLong(hClickedCtrl, GWL_STYLE) & BS_OWNERDRAW)) {
-                g_hSetTimePressedBtn = hClickedCtrl;
-                InvalidateRect(hDlg, NULL, FALSE);
-            }
-            // 如果点击的是空白区域或静态文本标签，则允许拖动
-            else if (hClickedCtrl == NULL || hClickedCtrl == hDlg ||
-                (GetWindowLong(hClickedCtrl, GWL_STYLE) & SS_LEFT)) {
-                g_isSetTimeDlgDragging = TRUE;
-                g_setTimeDlgDragStart = pt;
-                GetWindowRect(hDlg, &g_setTimeDlgRectStart);
-            }
-            return 0;
-        }
-        
-        case WM_INITDIALOG: {
-            int totalSeconds = g_timerState.seconds;
-            int currentHours = totalSeconds / 3600;
-            int currentMinutes = (totalSeconds % 3600) / 60;
-            int currentSecs = totalSeconds % 60;
-            
-            // 获取当前时间格式设置
-            BOOL showHours = GetShowHours();
-            BOOL showMinutes = GetShowMinutes();
-            BOOL showSeconds = GetShowSeconds();
-            
-            // 根据时间格式设置启用/禁用输入框
-            HWND hHoursEdit = GetDlgItem(hDlg, ID_EDIT_HOURS);
-            HWND hMinutesEdit = GetDlgItem(hDlg, ID_EDIT_MINUTES);
-            HWND hSecondsEdit = GetDlgItem(hDlg, ID_EDIT_SECONDS);
-            
-            EnableWindow(hHoursEdit, showHours);
-            EnableWindow(hMinutesEdit, showMinutes);
-            EnableWindow(hSecondsEdit, showSeconds);
-            
-            // 设置输入框的值（只有启用的输入框才设置值）
-            wchar_t buffer[16];
-            if (showHours) {
-                swprintf(buffer, 16, L"%d", currentHours);
-                SetWindowTextW(hHoursEdit, buffer);
-            } else {
-                SetWindowTextW(hHoursEdit, L"");
-            }
-            
-            if (showMinutes) {
-                swprintf(buffer, 16, L"%d", currentMinutes);
-                SetWindowTextW(hMinutesEdit, buffer);
-            } else {
-                SetWindowTextW(hMinutesEdit, L"");
-            }
-            
-            if (showSeconds) {
-                swprintf(buffer, 16, L"%d", currentSecs);
-                SetWindowTextW(hSecondsEdit, buffer);
-            } else {
-                SetWindowTextW(hSecondsEdit, L"");
-            }
-            
-            // 设置焦点到第一个启用的输入框并全选内容
-            HWND hFocusEdit = NULL;
-            if (showHours) {
-                hFocusEdit = hHoursEdit;
-            } else if (showMinutes) {
-                hFocusEdit = hMinutesEdit;
-            } else if (showSeconds) {
-                hFocusEdit = hSecondsEdit;
-            }
-            
-            if (hFocusEdit) {
-                SetFocus(hFocusEdit);
-                SendMessage(hFocusEdit, EM_SETSEL, 0, -1);
-            }
-            
-            return FALSE; // 返回FALSE让系统处理焦点设置
-        }
-        
-        case WM_CHAR: {
-            switch (wParam) {
-                case 27: // ESC键的ASCII码
-                    DestroyWindow(hDlg);
-                    return TRUE;
-                    
-                case 13: { // ENTER键的ASCII码
-                    SendMessage(hDlg, WM_COMMAND, MAKEWPARAM(ID_BUTTON_OK, BN_CLICKED), 0);
-                    return TRUE;
-                }
-                default:
-                    // 让编辑框正常处理其他字符输入
-                    break;
-            }
-            break;
-        }
-        
-        case WM_KEYDOWN: {
-            switch (wParam) {
-                case VK_ESCAPE:
-                    // ESC键取消对话框
-                    DestroyWindow(hDlg);
-                    return 0; // 返回0表示消息已处理，不再传递
-                    
-                case VK_RETURN: {
-                    // ENTER键确认对话框
-                    HWND hFocus = GetFocus();
-                    // 如果焦点在编辑框上，执行确认操作
-                    if (hFocus == GetDlgItem(hDlg, ID_EDIT_HOURS) ||
-                        hFocus == GetDlgItem(hDlg, ID_EDIT_MINUTES) ||
-                        hFocus == GetDlgItem(hDlg, ID_EDIT_SECONDS)) {
-                        SendMessage(hDlg, WM_COMMAND, MAKEWPARAM(ID_BUTTON_OK, BN_CLICKED), 0);
-                        return 0; // 返回0表示消息已处理，不再传递
-                    }
-                    // 如果焦点在取消按钮上，执行取消操作
-                    if (hFocus == GetDlgItem(hDlg, ID_BUTTON_CANCEL)) {
-                        DestroyWindow(hDlg);
-                        return 0;
-                    }
-                    // 否则执行确认操作
-                    SendMessage(hDlg, WM_COMMAND, MAKEWPARAM(ID_BUTTON_OK, BN_CLICKED), 0);
-                    return 0;
-                }
-                // 删除自定义TAB键处理，让Windows系统自己处理TAB键焦点切换
-            }
-            break;
-        }
-        
-        case WM_COMMAND: {
-            switch (LOWORD(wParam)) {
-
-                    
-                case ID_BUTTON_OK: {
-                    // 获取当前时间格式设置
-                    BOOL showHours = GetShowHours();
-                    BOOL showMinutes = GetShowMinutes();
-                    BOOL showSeconds = GetShowSeconds();
-                    
-                    wchar_t buffer[16];
-                    int hours = 0, minutes = 0, seconds = 0;
-                    
-                    // 只从启用的输入框获取值
-                    if (showHours) {
-                        GetWindowTextW(GetDlgItem(hDlg, ID_EDIT_HOURS), buffer, 16);
-                        hours = _wtoi(buffer);
-                        
-                        // 输入验证
-                        if (hours > 99) {
-                            const MenuTexts* texts = GetMenuTexts();
-                            MessageBoxW(hDlg, texts->errorHoursMax, texts->errorTitle, MB_OK | MB_ICONWARNING);
-                            SetFocus(GetDlgItem(hDlg, ID_EDIT_HOURS));
-                            return TRUE;
-                        }
-                    }
-                    
-                    if (showMinutes) {
-                        GetWindowTextW(GetDlgItem(hDlg, ID_EDIT_MINUTES), buffer, 16);
-                        minutes = _wtoi(buffer);
-                        
-                        // 输入验证
-                        if (minutes > 60) {
-                            const MenuTexts* texts = GetMenuTexts();
-                            MessageBoxW(hDlg, texts->errorMinutesMax, texts->errorTitle, MB_OK | MB_ICONWARNING);
-                            SetFocus(GetDlgItem(hDlg, ID_EDIT_MINUTES));
-                            return TRUE;
-                        }
-                    }
-                    
-                    if (showSeconds) {
-                        GetWindowTextW(GetDlgItem(hDlg, ID_EDIT_SECONDS), buffer, 16);
-                        seconds = _wtoi(buffer);
-                        
-                        // 输入验证
-                        if (seconds > 60) {
-                            const MenuTexts* texts = GetMenuTexts();
-                            MessageBoxW(hDlg, texts->errorSecondsMax, texts->errorTitle, MB_OK | MB_ICONWARNING);
-                            SetFocus(GetDlgItem(hDlg, ID_EDIT_SECONDS));
-                            return TRUE;
-                        }
-                    }
-                    
-                    int totalSeconds = hours * 3600 + minutes * 60 + seconds;
-                    SetTimerSeconds(totalSeconds);
-                    
-                    DestroyWindow(hDlg);
-                    return TRUE;
-                }
-                case ID_BUTTON_CANCEL:
-                    DestroyWindow(hDlg);
-                    return TRUE;
-            }
-            break;
-        }
-
-        // 设置静态文本控件背景色
-        case WM_CTLCOLORSTATIC: {
-            HDC hdcStatic = (HDC)wParam;
-            SetTextColor(hdcStatic, UI_LIGHT_TEXT_PRIMARY);
-            SetBkColor(hdcStatic, UI_LIGHT_BG_PRIMARY);
-            return (LRESULT)CreateSolidBrush(UI_LIGHT_BG_PRIMARY);
-        }
-
-        // 设置按钮控件背景色
-        case WM_CTLCOLORBTN: {
-            HDC hdcBtn = (HDC)wParam;
-            SetBkColor(hdcBtn, UI_LIGHT_BG_PRIMARY);
-            return (LRESULT)CreateSolidBrush(UI_LIGHT_BG_PRIMARY);
-        }
-
-        // 绘制对话框背景
-        case WM_ERASEBKGND: {
-            HDC hdc = (HDC)wParam;
-            RECT rect;
-            GetClientRect(hDlg, &rect);
-            HBRUSH hBrush = CreateSolidBrush(UI_LIGHT_BG_PRIMARY);
-            FillRect(hdc, &rect, hBrush);
-            DeleteObject(hBrush);
-            return TRUE;
-        }
-
-        // 按钮悬停跟踪和拖拽
-        case WM_MOUSEMOVE: {
-            // 拖拽处理
-            if (g_isSetTimeDlgDragging) {
-                POINT currentPos;
-                GetCursorPos(&currentPos);
-
-                int deltaX = currentPos.x - (g_setTimeDlgRectStart.left + g_setTimeDlgDragStart.x);
-                int deltaY = currentPos.y - (g_setTimeDlgRectStart.top + g_setTimeDlgDragStart.y);
-
-                SetWindowPos(hDlg, NULL, g_setTimeDlgRectStart.left + deltaX,
-                           g_setTimeDlgRectStart.top + deltaY,
-                           0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-            }
-
-            // 按钮悬停跟踪
-            POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-            HWND hHoverCtrl = ChildWindowFromPoint(hDlg, pt);
-
-            if (hHoverCtrl && (GetWindowLong(hHoverCtrl, GWL_STYLE) & BS_OWNERDRAW)) {
-                if (g_hSetTimeHoverBtn != hHoverCtrl) {
-                    g_hSetTimeHoverBtn = hHoverCtrl;
-                    InvalidateRect(hDlg, NULL, FALSE);
-                }
-            } else {
-                if (g_hSetTimeHoverBtn != NULL) {
-                    g_hSetTimeHoverBtn = NULL;
-                    InvalidateRect(hDlg, NULL, FALSE);
-                }
-            }
-            return 0;
-        }
-
-        case WM_LBUTTONUP: {
-            if (g_isSetTimeDlgDragging) {
-                g_isSetTimeDlgDragging = FALSE;
-                ReleaseCapture();
-            }
-            // 清除按钮按下状态并重绘
-            if (g_hSetTimePressedBtn != NULL) {
-                g_hSetTimePressedBtn = NULL;
-                InvalidateRect(hDlg, NULL, FALSE);
-            }
-            return 0;
-        }
-
-        case WM_MOUSELEAVE: {
-            if (g_hSetTimeHoverBtn != NULL) {
-                g_hSetTimeHoverBtn = NULL;
-                InvalidateRect(hDlg, NULL, FALSE);
-            }
-            return 0;
-        }
-
-        // 绘制按钮
-        case WM_DRAWITEM: {
-            LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
-
-            if (dis->CtlID == ID_BUTTON_OK || dis->CtlID == ID_BUTTON_CANCEL) {
-                BOOL isHover = (g_hSetTimeHoverBtn == dis->hwndItem);
-                BOOL isPressed = (g_hSetTimePressedBtn == dis->hwndItem);
-                BOOL isOK = (dis->CtlID == ID_BUTTON_OK);
-
-                // 确定按钮：蓝色背景，悬停时更深，按下时最深；其他按钮：浅灰背景，悬停时中灰，按下时更深
-                COLORREF fillColor = isOK ? UI_PRIMARY_COLOR : UI_LIGHT_BG_SECONDARY;
-                if (isPressed) {
-                    fillColor = isOK ? UI_PRIMARY_PRESSED : UI_LIGHT_BUTTON_PRESSED;
-                } else if (isHover) {
-                    fillColor = isOK ? UI_PRIMARY_HOVER : UI_LIGHT_BUTTON_HOVER;
-                }
-
-                COLORREF borderColor = UI_LIGHT_BORDER;
-                int borderWidth = 1;
-                int radius = 6;
-
-                // 按下时按钮向下偏移 1 像素
-                RECT btnRect = dis->rcItem;
-                if (isPressed) {
-                    btnRect.top += 1;
-                    btnRect.bottom += 1;
-                }
-
-                DrawRoundRect(dis->hDC, &btnRect, radius, fillColor, borderColor, borderWidth);
-
-                const wchar_t* btnText = NULL;
-                const MenuTexts* texts = GetMenuTexts();
-
-                switch (dis->CtlID) {
-                    case ID_BUTTON_OK: btnText = texts->ok; break;
-                    case ID_BUTTON_CANCEL: btnText = texts->cancel; break;
-                }
-
-                if (btnText) {
-                    SetBkMode(dis->hDC, TRANSPARENT);
-                    COLORREF textColor = isOK ? RGB(255, 255, 255) : UI_LIGHT_TEXT_PRIMARY;
-                    SetTextColor(dis->hDC, textColor);
-                    // 计算文本居中位置（按下时也偏移 1 像素）
-                    RECT textRect = btnRect;
-                    DrawTextW(dis->hDC, btnText, -1, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-                }
-
-                return TRUE;
-            }
-            return TRUE;
-        }
-
-        case WM_DESTROY:
-            for (int i = 0; i < 3; i++) {
-                if (g_hEditControls[i] && g_originalEditProcs[i]) {
-                    SetWindowLongPtr(g_hEditControls[i], GWLP_WNDPROC, (LONG_PTR)g_originalEditProcs[i]);
-                    g_originalEditProcs[i] = NULL;
-                    g_hEditControls[i] = NULL;
-                }
-            }
-            g_hParentDialog = NULL;
-            
-            g_hSetTimeDialog = NULL;
-            EnableWindow(g_timerState.hMainWnd, TRUE);
-            SetForegroundWindow(g_timerState.hMainWnd);
-            return 0;
-    }
-    return DefWindowProcW(hDlg, message, wParam, lParam);
+void CreateSetTimeDialog(void) {
+    ShowSetTimeDialog();
 }

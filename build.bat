@@ -26,6 +26,9 @@ gcc -o build\Timmmer.exe ^
     src\core\timer_core.c ^
     src\ui\timer_ui.c ^
     src\ui\timer_window.c ^
+    src\ui\timer_tray.c ^
+    src\ui\timer_buffer.c ^
+    src\ui\timer_window_utils.c ^
     src\ui\timer_render_utils.c ^
     src\dialogs\timer_dialog_common.c ^
     src\dialogs\timer_dialog_format.c ^

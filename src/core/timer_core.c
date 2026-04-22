@@ -1,6 +1,7 @@
 #include "timer_core.h"
 #include "timer_config.h"
 #include "timer_window.h"
+#include "timer_tray.h"
 #include "timer_audio.h"
 #include <stdio.h>
 #include <string.h>

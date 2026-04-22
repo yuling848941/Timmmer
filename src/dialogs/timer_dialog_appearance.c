@@ -1,5 +1,7 @@
 #include "timer_dialog_internal.h"
 #include "timer_render_utils.h"
+#include "timer_window_utils.h"
+#include "timer_buffer.h"
 #include "ios_menu.h"
 #include <commdlg.h>
 #include <uxtheme.h>

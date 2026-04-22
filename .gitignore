@@ -18,3 +18,5 @@ build/
 
 # Ignore config files that might be generated at runtime locally
 *.ini
+时间设置（现状）.png
+时间设置（期望）.png

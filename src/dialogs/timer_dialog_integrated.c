@@ -59,16 +59,32 @@ void CreateIntegratedDialog(void) {
 
     RegisterClassW(&wc);
 
-    // 获取主窗口位置以便居中显示
+    // 获取主窗口位置以便邻近显示
     RECT rectMain;
     GetWindowRect(g_timerState.hMainWnd, &rectMain);
-    int mainWidth = rectMain.right - rectMain.left;
     int mainHeight = rectMain.bottom - rectMain.top;
 
     int dlgWidth = 500;
     int dlgHeight = 450;
-    int x = rectMain.left + (mainWidth - dlgWidth) / 2;
+    
+    // 默认尝试放在主窗口右侧，保持 20 像素间隔
+    int x = rectMain.right + 20;
     int y = rectMain.top + (mainHeight - dlgHeight) / 2;
+
+    // 获取屏幕工作区尺寸（避开任务栏）
+    RECT workArea;
+    SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0);
+
+    // 如果右边超出了屏幕边界，则尝试放在左边
+    if (x + dlgWidth > workArea.right) {
+        x = rectMain.left - dlgWidth - 20;
+    }
+
+    // 最终边界检查，确保不超出工作区范围
+    if (x < workArea.left) x = workArea.left;
+    if (y < workArea.top) y = workArea.top;
+    if (x + dlgWidth > workArea.right) x = workArea.right - dlgWidth;
+    if (y + dlgHeight > workArea.bottom) y = workArea.bottom - dlgHeight;
 
     g_hIntegratedDialog = CreateWindowExW(
         WS_EX_TOPMOST | WS_EX_LAYERED,

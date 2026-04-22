@@ -1,5 +1,8 @@
 # 🕐 Timer - 现代化桌面计时器
 
+[English](README_EN.md) | 简体中文
+
+
 一个功能丰富、界面美观的 Windows 桌面计时器应用程序，支持倒计时、正计时、多语言、自定义外观和音频提示。
 
 ![Timer Screenshot](https://img.shields.io/badge/Platform-Windows-blue)

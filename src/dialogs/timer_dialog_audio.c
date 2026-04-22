@@ -392,12 +392,26 @@ void ShowAudioDialog(void) {
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     RegisterClassW(&wc);
     
+    RECT parentRect; GetWindowRect(g_timerState.hMainWnd, &parentRect);
+    int parentHeight = parentRect.bottom - parentRect.top;
+    int dlgWidth = 420, dlgHeight = 270;
+    int x = parentRect.right + 20;
+    int y = parentRect.top + (parentHeight - dlgHeight) / 2;
+
+    RECT workArea;
+    SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0);
+    if (x + dlgWidth > workArea.right) x = parentRect.left - dlgWidth - 20;
+    if (x < workArea.left) x = workArea.left;
+    if (y < workArea.top) y = workArea.top;
+    if (x + dlgWidth > workArea.right) x = workArea.right - dlgWidth;
+    if (y + dlgHeight > workArea.bottom) y = workArea.bottom - dlgHeight;
+
     g_hAudioDialog = CreateWindowExW(
         WS_EX_DLGMODALFRAME,
         L"AudioDialogClass",
         texts->audioTitle,
         WS_POPUP | WS_SYSMENU | WS_VISIBLE | WS_TABSTOP,
-        CW_USEDEFAULT, CW_USEDEFAULT, 420, 270,
+        x, y, dlgWidth, dlgHeight,
         g_timerState.hMainWnd,
         NULL,
         GetModuleHandle(NULL),

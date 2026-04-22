@@ -58,8 +58,20 @@ void CreatePresetEditDialog(void) {
     GetWindowRect(g_timerState.hMainWnd, &parentRect);
     GetWindowRect(g_hPresetEditDialog, &dialogRect);
     
-    int x = parentRect.left + (parentRect.right - parentRect.left - (dialogRect.right - dialogRect.left)) / 2;
-    int y = parentRect.top + (parentRect.bottom - parentRect.top - (dialogRect.bottom - dialogRect.top)) / 2;
+    int dlgWidth = dialogRect.right - dialogRect.left;
+    int dlgHeight = dialogRect.bottom - dialogRect.top;
+    int parentHeight = parentRect.bottom - parentRect.top;
+    
+    int x = parentRect.right + 20;
+    int y = parentRect.top + (parentHeight - dlgHeight) / 2;
+
+    RECT workArea;
+    SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0);
+    if (x + dlgWidth > workArea.right) x = parentRect.left - dlgWidth - 20;
+    if (x < workArea.left) x = workArea.left;
+    if (y < workArea.top) y = workArea.top;
+    if (x + dlgWidth > workArea.right) x = workArea.right - dlgWidth;
+    if (y + dlgHeight > workArea.bottom) y = workArea.bottom - dlgHeight;
     
     SetWindowPos(g_hPresetEditDialog, HWND_TOP, x, y, 0, 0, SWP_NOSIZE);
     SetFocus(g_hPresetEditDialog);

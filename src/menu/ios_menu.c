@@ -13,29 +13,32 @@
 #pragma comment(lib, "uxtheme.lib")
 #pragma comment(lib, "msimg32.lib")
 
+#include "timer_render_utils.h"
+
 // ===========================================
 // iOS 风格设计常量（旗舰版）
 // ===========================================
 
-#define MENU_WIDTH              230     
-#define MENU_ITEM_HEIGHT        46      
-#define MENU_RADIUS             14      
-#define MENU_SHADOW_SIZE        40      
+#define MENU_WIDTH              250     
+#define MENU_ITEM_HEIGHT        36      
+#define MENU_RADIUS             8      
+#define MENU_SHADOW_SIZE        20      
+#define MENU_SHADOW_OFFSET_Y    4      
 
-#define MENU_PADDING_TOP        10       
-#define MENU_PADDING_BOTTOM     10       
-#define MENU_PADDING_LEFT       14      
-#define MENU_PADDING_RIGHT      14      
+#define MENU_PADDING_TOP        6       
+#define MENU_PADDING_BOTTOM     6       
+#define MENU_PADDING_LEFT       12      
+#define MENU_PADDING_RIGHT      12      
 
-#define MENU_ICON_SIZE          18      
-#define MENU_ICON_BOX_W         28      
-#define MENU_TEXT_OFFSET        50      
+#define MENU_ICON_SIZE          16      
+#define MENU_ICON_BOX_W         32      
+#define MENU_TEXT_OFFSET        44      
 
-#define SWITCH_WIDTH            38      
-#define SWITCH_HEIGHT           20      
+#define SWITCH_WIDTH            34      
+#define SWITCH_HEIGHT           18      
 
-#define COLOR_TEXT_PRIMARY      RGB(32, 32, 32)
-#define COLOR_ACCENT            RGB(0, 120, 212) 
+#define COLOR_TEXT_PRIMARY      RGB(30, 30, 30)
+#define COLOR_ACCENT            RGB(0, 103, 192)
 
 // ===========================================
 // 全局变量与数据结构
@@ -68,69 +71,19 @@ typedef struct {
 
 // ===========================================
 // 绘图引擎（抗锯齿）
+// 核心函数已移至 timer_render_utils.c
 // ===========================================
 
-static inline void BlendPixel(BYTE* pixels, int idx, BYTE r, BYTE g, BYTE b, float alpha) {
-    if (alpha <= 0.01f) return;
-    if (alpha >= 0.99f) {
-        pixels[idx] = b; pixels[idx+1] = g; pixels[idx+2] = r; pixels[idx+3] = 255;
-        return;
-    }
-    BYTE a = (BYTE)(alpha * 255);
-    pixels[idx] = (pixels[idx] * (255 - a) + b * a) >> 8;
-    pixels[idx+1] = (pixels[idx+1] * (255 - a) + g * a) >> 8;
-    pixels[idx+2] = (pixels[idx+2] * (255 - a) + r * a) >> 8;
-    pixels[idx+3] = a > pixels[idx+3] ? a : pixels[idx+3];
-}
-
-static void FillRoundedRectAA(BYTE* pixels, int bufW, int bufH, int rx, int ry, int x, int y, int w, int h, BYTE r, BYTE g, BYTE b, BYTE a) {
-    int x1 = x + w, y1 = y + h;
-    for (int py = y; py < y1; py++) {
-        if (py < 0 || py >= bufH) continue;
-        float dy = (py < y + ry) ? (float)(y + ry - py) : (py >= y1 - ry ? (float)(py - (y1 - ry) + 1) : 0);
-        for (int px = x; px < x1; px++) {
-            if (px < 0 || px >= bufW) continue;
-            float dx = (px < x + rx) ? (float)(x + rx - px) : (px >= x1 - rx ? (float)(px - (x1 - rx) + 1) : 0);
-            float alpha = 1.0f;
-            if (dx > 0 && dy > 0) {
-                float dist = sqrtf(dx * dx + dy * dy);
-                if (dist > (float)rx) {
-                    float diff = dist - (float)rx;
-                    if (diff >= 1.0f) continue;
-                    alpha = 1.0f - diff;
-                }
-            }
-            int idx = (py * bufW + px) * 4;
-            BlendPixel(pixels, idx, r, g, b, alpha * (a / 255.0f));
-        }
-    }
-}
-
-static void DrawSoftShadow(BYTE* pixels, int bufW, int bufH, int menuH) {
-    int menuW = MENU_WIDTH; int shadowSize = 30;
-    for (int i = 0; i < shadowSize; i++) {
-        float alpha = 0.12f * (1.0f - (float)i / shadowSize);
-        for (int x = 8; x < menuW + i; x++) {
-            int y = menuH + i; if (x >= bufW || y >= bufH) continue;
-            BlendPixel(pixels, (y * bufW + x) * 4, 0, 0, 0, alpha);
-        }
-        for (int y = 8; y < menuH + i; y++) {
-            int x = menuW + i; if (x >= bufW || y >= bufH) continue;
-            BlendPixel(pixels, (y * bufW + x) * 4, 0, 0, 0, alpha);
-        }
-    }
-}
-
 static void DrawSwitchWin11(BYTE* pixels, int bufW, int bufH, int x, int y, BOOL isOn) {
-    int sw = SWITCH_WIDTH, sh = SWITCH_HEIGHT, ts = 12;
+    int sw = SWITCH_WIDTH, sh = SWITCH_HEIGHT, ts = 10;
     int cy = y + (MENU_ITEM_HEIGHT - sh) / 2;
     if (isOn) {
-        FillRoundedRectAA(pixels, bufW, bufH, 10, 10, x, cy, sw, sh, 0, 120, 212, 255);
-        FillRoundedRectAA(pixels, bufW, bufH, 6, 6, x + sw - ts - 4, cy + 4, ts, ts, 255, 255, 255, 255);
+        FillRoundedRectAA(pixels, bufW, bufH, sh/2, sh/2, x, cy, sw, sh, 0, 103, 192, 255);
+        FillRoundedRectAA(pixels, bufW, bufH, ts/2, ts/2, x + sw - ts - 4, cy + 4, ts, ts, 255, 255, 255, 255);
     } else {
-        FillRoundedRectAA(pixels, bufW, bufH, 10, 10, x, cy, sw, sh, 180, 180, 180, 255);
-        FillRoundedRectAA(pixels, bufW, bufH, 9, 9, x + 1, cy + 1, sw - 2, sh - 2, 255, 255, 255, 255);
-        FillRoundedRectAA(pixels, bufW, bufH, 6, 6, x + 5, cy + 4, ts, ts, 120, 120, 120, 255);
+        FillRoundedRectAA(pixels, bufW, bufH, sh/2, sh/2, x, cy, sw, sh, 180, 180, 180, 255);
+        FillRoundedRectAA(pixels, bufW, bufH, (sh-2)/2, (sh-2)/2, x + 1, cy + 1, sw - 2, sh - 2, 255, 255, 255, 255);
+        FillRoundedRectAA(pixels, bufW, bufH, ts/2, ts/2, x + 5, cy + 4, ts, ts, 120, 120, 120, 255);
     }
 }
 
@@ -138,32 +91,29 @@ static void DrawSwitchWin11(BYTE* pixels, int bufW, int bufH, int x, int y, BOOL
 // 菜单项内容绘制
 // ===========================================
 
-static void DrawItemContent(MenuData* data, int idx, int y) {
+static void DrawItemContent(MenuData* data, int idx, int mx, int y) {
     const IosMenuItem* it = &data->items[idx];
     HDC hdc = data->hdcBuffer;
-    int ix = MENU_PADDING_LEFT;
-    int tx = MENU_TEXT_OFFSET;
+    int ix = mx + MENU_PADDING_LEFT;
+    int tx = mx + MENU_TEXT_OFFSET;
+
+    HTHEME hTheme = OpenThemeData(NULL, L"WINDOW");
+    DTTOPTS dttOpts = { sizeof(DTTOPTS) };
+    dttOpts.dwFlags = DTT_COMPOSITED | DTT_TEXTCOLOR;
 
     if (it->iconChar && wcslen(it->iconChar) == 1) {
-        SelectObject(hdc, data->hFontIcon); SetTextColor(hdc, RGB(80, 80, 80)); SetBkMode(hdc, TRANSPARENT);
+        SelectObject(hdc, data->hFontIcon); 
+        dttOpts.crText = RGB(90, 90, 90);
         RECT rc = {ix, y, ix + MENU_ICON_BOX_W, y + MENU_ITEM_HEIGHT};
-        DrawTextW(hdc, it->iconChar, 1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        DrawThemeTextEx(hTheme, hdc, 0, 0, it->iconChar, 1, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX, &rc, &dttOpts);
     }
 
-    SelectObject(hdc, data->hFontLabel); SetTextColor(hdc, COLOR_TEXT_PRIMARY);
-    RECT rcText = {tx, y, MENU_WIDTH - MENU_PADDING_RIGHT, y + MENU_ITEM_HEIGHT};
-    DrawTextW(hdc, it->label, -1, &rcText, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    SelectObject(hdc, data->hFontLabel); 
+    dttOpts.crText = COLOR_TEXT_PRIMARY;
+    RECT rcText = {tx, y, mx + MENU_WIDTH - MENU_PADDING_RIGHT, y + MENU_ITEM_HEIGHT};
+    DrawThemeTextEx(hTheme, hdc, 0, 0, it->label, -1, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX, &rcText, &dttOpts);
 
-    // Alpha 修复
-    BYTE* p = (BYTE*)data->pBits;
-    for (int i = y; i < y + MENU_ITEM_HEIGHT; i++) {
-        if (i >= data->bufHeight) break;
-        BYTE* row = p + (i * data->bufWidth * 4);
-        for (int j = 0; j < MENU_WIDTH; j++) {
-            BYTE* px = row + (j * 4);
-            if (px[0] < 240 || px[1] < 240 || px[2] < 240) px[3] = 255;
-        }
-    }
+    CloseThemeData(hTheme);
 }
 
 // ===========================================
@@ -176,23 +126,33 @@ static void RenderMenuContent(MenuData* data) {
     int sz = w * h * 4;
 
     memset(pixels, 0, sz);
-    DrawSoftShadow(pixels, w, h, mh);
-    FillRoundedRectAA(pixels, w, h, MENU_RADIUS, MENU_RADIUS, 0, 0, MENU_WIDTH, mh, 255, 255, 255, 252);
+    
+    int mx = MENU_SHADOW_SIZE;
+    int my = MENU_SHADOW_SIZE;
 
-    int y = MENU_PADDING_TOP;
+    // 绘制全局真软阴影
+    DrawSoftShadowSDF(pixels, w, h, mx, my, MENU_WIDTH, mh, MENU_RADIUS, MENU_SHADOW_SIZE, MENU_SHADOW_OFFSET_Y, 0.18f);
+    
+    // 绘制1px微弱描边 (通过画一个稍大的底层实现)
+    FillRoundedRectAA(pixels, w, h, MENU_RADIUS, MENU_RADIUS, mx - 1, my - 1, MENU_WIDTH + 2, mh + 2, 0, 0, 0, 15);
+    
+    // 绘制菜单主体背景 (半透明玻璃态)
+    FillRoundedRectAA(pixels, w, h, MENU_RADIUS, MENU_RADIUS, mx, my, MENU_WIDTH, mh, 252, 252, 252, 245);
+
+    int y = my + MENU_PADDING_TOP;
     for (int i = 0; i < data->itemCount; i++) {
         const IosMenuItem* it = &data->items[i];
         if (i == data->hoverIndex) {
-            FillRoundedRectAA(pixels, w, h, 10, 10, 6, y + 2, MENU_WIDTH - 12, MENU_ITEM_HEIGHT - 4, 240, 240, 250, 255);
+            FillRoundedRectAA(pixels, w, h, 6, 6, mx + 6, y + 2, MENU_WIDTH - 12, MENU_ITEM_HEIGHT - 4, 0, 0, 0, 12);
         }
         if (it->type == IOS_MENU_ITEM_SWITCH) {
-            DrawSwitchWin11(pixels, w, h, MENU_WIDTH - 45 - MENU_PADDING_RIGHT, y, it->isSwitchOn);
+            DrawSwitchWin11(pixels, w, h, mx + MENU_WIDTH - SWITCH_WIDTH - MENU_PADDING_RIGHT, y, it->isSwitchOn);
         }
         if (it->hasDividerAfter && i < data->itemCount - 1) {
             int ly = y + MENU_ITEM_HEIGHT;
-            for (int x = MENU_TEXT_OFFSET; x < MENU_WIDTH - MENU_PADDING_RIGHT; x++) BlendPixel(pixels, (ly * w + x) * 4, 235, 235, 235, 0.8f);
+            for (int dx = MENU_TEXT_OFFSET; dx < MENU_WIDTH - MENU_PADDING_RIGHT; dx++) BlendPixel(pixels, (ly * w + mx + dx) * 4, 0, 0, 0, 0.08f);
         }
-        DrawItemContent(data, i, y);
+        DrawItemContent(data, i, mx, y);
         y += MENU_ITEM_HEIGHT;
     }
 }
@@ -221,17 +181,29 @@ static LRESULT CALLBACK MenuProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         case WM_TIMER: {
             POINT pt; GetCursorPos(&pt); ScreenToClient(hwnd, &pt); int h = -1;
-            if (pt.x >= 0 && pt.x < MENU_WIDTH && pt.y >= MENU_PADDING_TOP && pt.y < d->menuHeight - MENU_PADDING_BOTTOM) {
-                h = (pt.y - MENU_PADDING_TOP) / MENU_ITEM_HEIGHT; if (h >= d->itemCount) h = -1;
+            int mx = MENU_SHADOW_SIZE;
+            int my = MENU_SHADOW_SIZE;
+            if (pt.x >= mx && pt.x < mx + MENU_WIDTH && pt.y >= my + MENU_PADDING_TOP && pt.y < my + d->menuHeight - MENU_PADDING_BOTTOM) {
+                h = (pt.y - my - MENU_PADDING_TOP) / MENU_ITEM_HEIGHT; if (h >= d->itemCount) h = -1;
             }
-            if (h != d->hoverIndex) { d->hoverIndex = h; UpdateMenuDisplay(hwnd, d); } return 0;
+            if (h != d->hoverIndex) {
+                d->hoverIndex = h;
+                UpdateMenuDisplay(hwnd, d);
+                // 向 owner 发送悬停预览命令（commandId + 10000 区分正式选择）
+                if (h >= 0 && h < d->itemCount && d->items[h].commandId != 0 && d->owner) {
+                    SendMessage(d->owner, WM_COMMAND, MAKEWPARAM(d->items[h].commandId + 10000, 0), 0);
+                }
+            }
+            return 0;
         }
         case WM_LBUTTONDOWN: {
             POINT pt = {(short)LOWORD(lp), (short)HIWORD(lp)};
-            if (pt.x >= 0 && pt.x < MENU_WIDTH &&
-                pt.y >= MENU_PADDING_TOP && pt.y < d->menuHeight - MENU_PADDING_BOTTOM)
+            int mx = MENU_SHADOW_SIZE;
+            int my = MENU_SHADOW_SIZE;
+            if (pt.x >= mx && pt.x < mx + MENU_WIDTH &&
+                pt.y >= my + MENU_PADDING_TOP && pt.y < my + d->menuHeight - MENU_PADDING_BOTTOM)
             {
-                int i = (pt.y - MENU_PADDING_TOP) / MENU_ITEM_HEIGHT;
+                int i = (pt.y - my - MENU_PADDING_TOP) / MENU_ITEM_HEIGHT;
                 if (i >= 0 && i < d->itemCount) {
                     const IosMenuItem* it = &d->items[i];
                     if (it->commandId != 0) SendMessage(d->owner, WM_COMMAND, MAKEWPARAM(it->commandId, 0), 0);
@@ -267,6 +239,10 @@ static LRESULT CALLBACK MenuProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (d && d->isDraggingOwner) d->isDraggingOwner = FALSE;
             if (g_currentMenuHwnd == hwnd) DestroyWindow(hwnd); return 0;
         case WM_DESTROY: {
+            // 菜单关闭时通知 owner 恢复字体（取消悬停预览状态）
+            if (d && d->owner) {
+                SendMessage(d->owner, WM_COMMAND, MAKEWPARAM(9999, 0), 0);
+            }
             if (d) { KillTimer(hwnd, 1); DeleteObject(d->hbmBuffer); DeleteDC(d->hdcBuffer); if (d->cachedFull) free(d->cachedFull); DeleteObject(d->hFontLabel); DeleteObject(d->hFontIcon); free(d); }
             g_currentMenuHwnd = NULL; return 0;
         }
@@ -286,7 +262,36 @@ void IosMenu_Shutdown(void) { if (g_classRegistered) UnregisterClassW(g_menuClas
 HWND IosMenu_Show(HWND o, int x, int y, const IosMenuItem* i, int ic) {
     if (g_currentMenuHwnd) DestroyWindow(g_currentMenuHwnd);
     int h = MENU_PADDING_TOP + MENU_PADDING_BOTTOM + ic * MENU_ITEM_HEIGHT;
+    
+    int fullWidth = MENU_WIDTH + MENU_SHADOW_SIZE * 2;
+    int fullHeight = h + MENU_SHADOW_SIZE * 2;
+
+    int visualX = x;
+    int visualY = y;
+
+    // 获取当前点所在的显示器工作区，确保菜单主体不会超出屏幕
+    POINT pt = { x, y };
+    HMONITOR hMonitor = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = { sizeof(MONITORINFO) };
+    if (GetMonitorInfoW(hMonitor, (LPMONITORINFO)&mi)) {
+        // 如果右侧超出屏幕，将菜单显示在点击位置的左侧
+        if (visualX + MENU_WIDTH > mi.rcWork.right) {
+            visualX = x - MENU_WIDTH;
+        }
+        // 如果下方超出屏幕，将菜单显示在点击位置的上方
+        if (visualY + h > mi.rcWork.bottom) {
+            visualY = y - h;
+        }
+        
+        // 确保不超出工作区的左侧和上方边缘
+        if (visualX < mi.rcWork.left) visualX = mi.rcWork.left;
+        if (visualY < mi.rcWork.top) visualY = mi.rcWork.top;
+    }
+
+    int winX = visualX - MENU_SHADOW_SIZE;
+    int winY = visualY - MENU_SHADOW_SIZE;
+
     IosMenuCreateParams p = {i, ic, o, h};
-    HWND hwnd = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW, g_menuClassName, L"", WS_POPUP, x, y, MENU_WIDTH + MENU_SHADOW_SIZE, h + MENU_SHADOW_SIZE, o, NULL, GetModuleHandle(NULL), &p);
+    HWND hwnd = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW, g_menuClassName, L"", WS_POPUP, winX, winY, fullWidth, fullHeight, o, NULL, GetModuleHandle(NULL), &p);
     g_currentMenuHwnd = hwnd; ShowWindow(hwnd, SW_SHOW); SetCapture(hwnd); return hwnd;
 }

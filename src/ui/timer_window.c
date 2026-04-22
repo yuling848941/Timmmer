@@ -361,14 +361,21 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                     // 检查窗口是否在后台（无焦点且不是前台窗口）
                     HWND foregroundWnd = GetForegroundWindow();
                     if (foregroundWnd != hwnd && foregroundWnd != NULL) {
-                        // 窗口在后台，降低刷新率（每 3 秒刷新一次）
-                        static int skipCounter = 0;
-                        skipCounter++;
-                        if (skipCounter < 3) {
-                            // 跳过这次渲染，但仍然更新计时逻辑
-                            return 0;
+                        // 判断前台窗口是否属于本进程（如字体菜单、外观设置等子窗口）
+                        // 若属于本进程，不视为"后台"，仍正常刷新
+                        DWORD fgPid = 0;
+                        GetWindowThreadProcessId(foregroundWnd, &fgPid);
+                        DWORD myPid = GetCurrentProcessId();
+                        if (fgPid != myPid) {
+                            // 真正在后台（其他进程的窗口在前台），降低刷新率（每 3 次刷新一次）
+                            static int skipCounter = 0;
+                            skipCounter++;
+                            if (skipCounter < 3) {
+                                // 跳过这次渲染，但仍然更新计时逻辑
+                                return 0;
+                            }
+                            skipCounter = 0;
                         }
-                        skipCounter = 0;
                     }
 
                     // 根据模式选择渲染方法
@@ -1047,11 +1054,11 @@ static void ShowIosContextMenu(HWND owner, int x, int y) {
     // === 计时控制组 ===
     if (g_timerState.isRunning) {
         g_iosMenuItems[g_iosMenuItemCount++] = (IosMenuItem){
-            IOS_MENU_ITEM_NORMAL, texts->startPause, NULL, L"\uE769", TRUE, FALSE, ID_START_PAUSE
+            IOS_MENU_ITEM_NORMAL, texts->startPause, NULL, L"\uE769", FALSE, FALSE, ID_START_PAUSE
         };
     } else {
         g_iosMenuItems[g_iosMenuItemCount++] = (IosMenuItem){
-            IOS_MENU_ITEM_NORMAL, texts->startPause, NULL, L"\uE768", TRUE, FALSE, ID_START_PAUSE
+            IOS_MENU_ITEM_NORMAL, texts->startPause, NULL, L"\uE768", FALSE, FALSE, ID_START_PAUSE
         };
     }
     g_iosMenuItems[g_iosMenuItemCount++] = (IosMenuItem){

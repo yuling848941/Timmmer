@@ -1,826 +1,580 @@
 #include "timer_dialog_internal.h"
+#include "timer_render_utils.h"
+#include "ios_menu.h"
+#include <commdlg.h>
+#include <uxtheme.h>
+#include <stdio.h>
+#include <stdlib.h>
 
-static HWND g_hAppearanceHoverBtn = NULL;
-static int g_hoverBtnId = 0;
-static HWND g_hAppearancePressedBtn = NULL;
+#define DLG_WIDTH 460
+#define DLG_HEIGHT 560
+#define DLG_SHADOW 30
+#define DLG_RADIUS 12
+
+// Layout Rects (Virtual hit-test areas, relative to window)
+static RECT rcCard = {DLG_SHADOW, DLG_SHADOW, DLG_WIDTH - DLG_SHADOW, DLG_HEIGHT - DLG_SHADOW};
+static RECT rcFontColorBox = {DLG_SHADOW + 20, DLG_SHADOW + 50, DLG_SHADOW + 190, DLG_SHADOW + 100};
+static RECT rcBgColorBox = {DLG_SHADOW + 210, DLG_SHADOW + 50, DLG_SHADOW + 380, DLG_SHADOW + 100};
+static RECT rcResetText = {DLG_SHADOW + 140, DLG_SHADOW + 105, DLG_SHADOW + 190, DLG_SHADOW + 125};
+static RECT rcRandomText = {DLG_SHADOW + 310, DLG_SHADOW + 105, DLG_SHADOW + 380, DLG_SHADOW + 125};
+
+static RECT rcSliderTrack = {DLG_SHADOW + 20, DLG_SHADOW + 170, DLG_SHADOW + 320, DLG_SHADOW + 180};
+static int sliderThumbR = 10;
+
+static RECT rcFontCombo = {DLG_SHADOW + 20, DLG_SHADOW + 240, DLG_SHADOW + 380, DLG_SHADOW + 280};
+static RECT rcToggleCard = {DLG_SHADOW + 20, DLG_SHADOW + 310, DLG_SHADOW + 380, DLG_SHADOW + 370};
+static RECT rcToggleSwitch = {DLG_SHADOW + 380 - 15 - 34, DLG_SHADOW + 310 + (60-18)/2, DLG_SHADOW + 380 - 15, DLG_SHADOW + 310 + (60-18)/2 + 18};
+
+static RECT rcBtnApply = {DLG_SHADOW + 20, DLG_SHADOW + 400, DLG_SHADOW + 190, DLG_SHADOW + 440};
+static RECT rcBtnCancel = {DLG_SHADOW + 210, DLG_SHADOW + 400, DLG_SHADOW + 380, DLG_SHADOW + 440};
+
+typedef enum {
+    HIT_NONE,
+    HIT_CARD_BG,
+    HIT_FONT_COLOR,
+    HIT_BG_COLOR,
+    HIT_RESET,
+    HIT_RANDOM,
+    HIT_SLIDER_TRACK,
+    HIT_SLIDER_THUMB,
+    HIT_FONT_COMBO,
+    HIT_TOGGLE_BG,
+    HIT_BTN_APPLY,
+    HIT_BTN_CANCEL
+} HitTestID;
+
 static HWND g_hAppearanceDialog = NULL;
-static BOOL g_isAppearanceDlgDragging = FALSE;
-static POINT g_appearanceDlgDragStart;
-static RECT g_appearanceDlgRectStart;
+static HDC g_hdcBuffer = NULL;
+static HBITMAP g_hbmBuffer = NULL;
+static BYTE* g_pBits = NULL;
+
 static COLORREF g_tempFontColor;
 static COLORREF g_tempBackgroundColor;
+static BYTE g_tempOpacity;
+static BOOL g_tempTransparentBackground;
+static wchar_t g_tempFontName[256];
+
 static COLORREF g_originalFontColor;
 static COLORREF g_originalBackgroundColor;
-static BYTE g_tempOpacity;
 static BYTE g_originalOpacity;
 static BOOL g_originalTransparentBackground;
 static wchar_t g_originalFontName[256];
-static BOOL g_fontPreviewActive = FALSE;
-static BOOL g_fontSelectionMade = FALSE;
-static HWND g_fontComboBox = NULL;
-static WNDPROC g_originalComboProc = NULL;
-static HWND g_fontListBox = NULL;
-static WNDPROC g_originalListProc = NULL;
 
-HWND GetAppearanceDialog(void) {
-    return g_hAppearanceDialog;
-}
+static HitTestID g_hoverId = HIT_NONE;
+static HitTestID g_pressedId = HIT_NONE;
+static BOOL g_isDraggingSlider = FALSE;
+static BOOL g_isDraggingDlg = FALSE;
+static POINT g_dragStartScreen;
+static RECT g_dlgStartRect;
 
-// 外观设置对话框
-void ShowAppearanceDialog() {
-    if (g_hAppearanceDialog && IsWindow(g_hAppearanceDialog)) {
-        SetForegroundWindow(g_hAppearanceDialog);
-        return;
+static IosMenuItem* g_fontMenuItems = NULL;
+static int g_fontMenuCount = 0;
+
+static void FreeFontMenu() {
+    if (g_fontMenuItems) {
+        for(int i=0; i<g_fontMenuCount; i++) {
+            if(g_fontMenuItems[i].label) free((void*)g_fontMenuItems[i].label);
+        }
+        free(g_fontMenuItems);
+        g_fontMenuItems = NULL;
+        g_fontMenuCount = 0;
     }
-    CreateAppearanceDialog();
 }
 
-static void DrawModernCard(HDC hdc, RECT* rect) {
-    DrawRoundRect(hdc, rect, 12, RGB(255, 255, 255), RGB(230, 230, 230), 1);
-}
-
-// Draw iOS-style Switch
-static void DrawSwitch(HDC hdc, RECT* rect, BOOL isOn) {
-    int w = rect->right - rect->left;
-    int h = rect->bottom - rect->top;
-    if (isOn) {
-        DrawRoundRect(hdc, rect, h/2, UI_PRIMARY_COLOR, UI_PRIMARY_COLOR, 1);
-        RECT thumb = {rect->right - h + 2, rect->top + 2, rect->right - 2, rect->bottom - 2};
-        DrawRoundRect(hdc, &thumb, (h-4)/2, RGB(255,255,255), RGB(255,255,255), 1);
+static void RebuildFontMenu() {
+    FreeFontMenu();
+    if (InitializeFontResourceSystem()) {
+        wchar_t fontNames[32][256];
+        g_fontMenuCount = GetMixedFontList(fontNames, 32);
+        g_fontMenuItems = (IosMenuItem*)calloc(g_fontMenuCount, sizeof(IosMenuItem));
+        for (int i = 0; i < g_fontMenuCount; i++) {
+            g_fontMenuItems[i].type = IOS_MENU_ITEM_NORMAL;
+            g_fontMenuItems[i].label = _wcsdup(fontNames[i]);
+            g_fontMenuItems[i].commandId = 1000 + i;
+        }
     } else {
-        DrawRoundRect(hdc, rect, h/2, RGB(220, 220, 225), RGB(200, 200, 205), 1);
-        RECT thumb = {rect->left + 2, rect->top + 2, rect->left + h - 2, rect->bottom - 2};
-        DrawRoundRect(hdc, &thumb, (h-4)/2, RGB(255,255,255), RGB(200,200,205), 1);
+        g_fontMenuCount = GetAvailableFontCount();
+        g_fontMenuItems = (IosMenuItem*)calloc(g_fontMenuCount, sizeof(IosMenuItem));
+        for (int i = 0; i < g_fontMenuCount; i++) {
+            const FontInfo* fontInfo = GetFontInfoByIndex(i);
+            g_fontMenuItems[i].type = IOS_MENU_ITEM_NORMAL;
+            g_fontMenuItems[i].label = _wcsdup(fontInfo->displayName);
+            g_fontMenuItems[i].commandId = 1000 + i;
+        }
     }
 }
 
-static WNDPROC g_originalSliderProc = NULL;
-static BOOL g_isSliderDragging = FALSE;
-static LRESULT CALLBACK OpacitySliderSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    switch (uMsg) {
-        case WM_PAINT: {
-            PAINTSTRUCT ps;
-            HDC hdc = BeginPaint(hwnd, &ps);
-            RECT rc; GetClientRect(hwnd, &rc);
-            HBRUSH bgBrush = CreateSolidBrush(RGB(255, 255, 255));
-            FillRect(hdc, &rc, bgBrush);
-            DeleteObject(bgBrush);
-            
-            int trackH = 6;
-            int trackY = (rc.bottom - rc.top - trackH) / 2;
-            RECT trackRc = {rc.left + 10, trackY, rc.right - 10, trackY + trackH};
-            DrawRoundRect(hdc, &trackRc, 3, RGB(230, 230, 235), RGB(230, 230, 235), 1);
-            
-            float percent = (g_tempOpacity - 50) / 205.0f;
-            if (percent < 0) percent = 0; if (percent > 1) percent = 1;
-            int fillW = (int)((trackRc.right - trackRc.left) * percent);
-            RECT fillRc = {trackRc.left, trackY, trackRc.left + fillW, trackY + trackH};
-            DrawRoundRect(hdc, &fillRc, 3, UI_PRIMARY_COLOR, UI_PRIMARY_COLOR, 1);
-            
-            int thumbX = fillRc.right;
-            int thumbR = 10;
-            RECT thumbRc = {thumbX - thumbR, (rc.bottom-rc.top)/2 - thumbR, thumbX + thumbR, (rc.bottom-rc.top)/2 + thumbR};
-            DrawRoundRect(hdc, &thumbRc, thumbR, RGB(255, 255, 255), RGB(200, 200, 200), 1);
-            EndPaint(hwnd, &ps);
-            return 0;
-        }
-        case WM_LBUTTONDOWN:
-        case WM_MOUSEMOVE: {
-            if ((uMsg == WM_LBUTTONDOWN) || (wParam & MK_LBUTTON)) {
-                if (uMsg == WM_LBUTTONDOWN) { SetCapture(hwnd); g_isSliderDragging = TRUE; }
-                RECT rc; GetClientRect(hwnd, &rc);
-                int x = (short)LOWORD(lParam);
-                int trackL = 10;
-                int trackR = rc.right - 10;
-                float percent = (float)(x - trackL) / (trackR - trackL);
-                if (percent < 0) percent = 0; if (percent > 1) percent = 1;
-                g_tempOpacity = (BYTE)(50 + percent * 205);
-                InvalidateRect(hwnd, NULL, FALSE);
-                HWND hLabel = GetDlgItem(GetParent(hwnd), ID_APPEARANCE_OPACITY_LABEL);
-                if (hLabel) {
-                    wchar_t opacityText[16];
-                    swprintf(opacityText, 16, L"%d%%", (int)((g_tempOpacity / 255.0) * 100));
-                    SetWindowTextW(hLabel, opacityText);
-                }
-                if (g_timerState.transparentBackground) { UpdateLayeredWindow_Render(); } 
-                else {
-                    SetLayeredWindowAttributes(g_timerState.hMainWnd, 0, g_tempOpacity, LWA_ALPHA);
-                    InvalidateRect(g_timerState.hMainWnd, NULL, TRUE);
-                    UpdateWindow(g_timerState.hMainWnd);
-                }
-                return 0;
-            }
-            break;
-        }
-        case WM_LBUTTONUP:
-            if (g_isSliderDragging) { ReleaseCapture(); g_isSliderDragging = FALSE; }
-            return 0;
-    }
-    return CallWindowProc(g_originalSliderProc, hwnd, uMsg, wParam, lParam);
+static void UpdateAppearanceLayeredWindow();
+
+static void DrawTextSDF(HDC hdc, const wchar_t* text, RECT* rc, int format, HFONT hFont, COLORREF color) {
+    HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
+    
+    HTHEME hTheme = OpenThemeData(NULL, L"WINDOW");
+    DTTOPTS dttOpts = {sizeof(DTTOPTS)};
+    dttOpts.dwFlags = DTT_COMPOSITED | DTT_TEXTCOLOR;
+    dttOpts.crText = color;
+    DrawThemeTextEx(hTheme, hdc, 0, 0, text, -1, format, rc, &dttOpts);
+    CloseThemeData(hTheme);
+    
+    SelectObject(hdc, hOldFont);
 }
 
-void CreateAppearanceDialog() {
-    WNDCLASSW wc = {0};
-    wc.lpfnWndProc = AppearanceDialogProc;
-    wc.hInstance = GetModuleHandle(NULL);
-    wc.lpszClassName = L"AppearanceDialogClass";
-    wc.hbrBackground = CreateSolidBrush(RGB(245, 245, 247)); // Light modern background
-    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-    wc.style = CS_HREDRAW | CS_VREDRAW;
-    RegisterClassW(&wc);
+static void RenderDialogUI() {
+    memset(g_pBits, 0, DLG_WIDTH * DLG_HEIGHT * 4);
+    
+    // Draw Card Shadow
+    DrawSoftShadowSDF(g_pBits, DLG_WIDTH, DLG_HEIGHT, rcCard.left, rcCard.top, rcCard.right-rcCard.left, rcCard.bottom-rcCard.top, DLG_RADIUS, DLG_SHADOW, 4, 0.15f);
+    
+    // Draw Main Card
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, DLG_RADIUS, DLG_RADIUS, rcCard.left, rcCard.top, rcCard.right-rcCard.left, rcCard.bottom-rcCard.top, 250, 250, 252, 255);
 
+    // Prepare GDI for Text
+    HFONT hFontLabel = CreateFontW(16, 0,0,0, FW_NORMAL, 0,0,0, DEFAULT_CHARSET, 0,0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+    HFONT hFontSmall = CreateFontW(14, 0,0,0, FW_NORMAL, 0,0,0, DEFAULT_CHARSET, 0,0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+    HFONT hFontBtn = CreateFontW(16, 0,0,0, FW_SEMIBOLD, 0,0,0, DEFAULT_CHARSET, 0,0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+    
     const MenuTexts* texts = GetMenuTexts();
-    RECT parentRect; GetWindowRect(g_timerState.hMainWnd, &parentRect);
-    int dialogWidth = 460;
-    int dialogHeight = 520;
-    int x = parentRect.left + (parentRect.right - parentRect.left - dialogWidth) / 2;
-    int y = parentRect.top + (parentRect.bottom - parentRect.top - dialogHeight) / 2;
+    
+    // Row 1: Font Color
+    RECT rcLabelFC = {rcFontColorBox.left, rcFontColorBox.top - 25, rcFontColorBox.right, rcFontColorBox.top};
+    DrawTextSDF(g_hdcBuffer, texts->fontColor, &rcLabelFC, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(30,30,30));
+    
+    BYTE r = GetRValue(g_tempFontColor), g = GetGValue(g_tempFontColor), b = GetBValue(g_tempFontColor);
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8, rcFontColorBox.left, rcFontColorBox.top, rcFontColorBox.right-rcFontColorBox.left, rcFontColorBox.bottom-rcFontColorBox.top, r, g, b, 255);
+    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8, rcFontColorBox.left, rcFontColorBox.top, rcFontColorBox.right-rcFontColorBox.left, rcFontColorBox.bottom-rcFontColorBox.top, 1, 0, 0, 0, 20); // subtle border
+    
+    DrawTextSDF(g_hdcBuffer, texts->resetButton, &rcResetText, DT_RIGHT | DT_VCENTER | DT_SINGLELINE, hFontSmall, (g_hoverId == HIT_RESET) ? UI_PRIMARY_HOVER : UI_PRIMARY_COLOR);
+    // Draw underline for Reset
+    RECT rcLineReset = rcResetText; rcLineReset.top += 16;
+    DrawTextSDF(g_hdcBuffer, L"_", &rcLineReset, DT_RIGHT | DT_VCENTER | DT_SINGLELINE, hFontSmall, (g_hoverId == HIT_RESET) ? UI_PRIMARY_HOVER : UI_PRIMARY_COLOR);
 
-    g_hAppearanceDialog = CreateWindowExW(WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
-        L"AppearanceDialogClass", texts->appearanceTitle,
-        WS_POPUP | WS_VISIBLE | WS_TABSTOP,
-        x, y, dialogWidth, dialogHeight,
-        g_timerState.hMainWnd, NULL, GetModuleHandle(NULL), NULL);
+    // Row 1: Bg Color
+    RECT rcLabelBC = {rcBgColorBox.left, rcBgColorBox.top - 25, rcBgColorBox.right, rcBgColorBox.top};
+    DrawTextSDF(g_hdcBuffer, texts->backgroundColor, &rcLabelBC, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(30,30,30));
+    
+    r = GetRValue(g_tempBackgroundColor), g = GetGValue(g_tempBackgroundColor), b = GetBValue(g_tempBackgroundColor);
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8, rcBgColorBox.left, rcBgColorBox.top, rcBgColorBox.right-rcBgColorBox.left, rcBgColorBox.bottom-rcBgColorBox.top, r, g, b, 255);
+    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8, rcBgColorBox.left, rcBgColorBox.top, rcBgColorBox.right-rcBgColorBox.left, rcBgColorBox.bottom-rcBgColorBox.top, 1, 0, 0, 0, 20); // subtle border
+    
+    DrawTextSDF(g_hdcBuffer, texts->randomButton, &rcRandomText, DT_RIGHT | DT_VCENTER | DT_SINGLELINE, hFontSmall, (g_hoverId == HIT_RANDOM) ? UI_PRIMARY_HOVER : UI_PRIMARY_COLOR);
+    // Draw underline for Random
+    RECT rcLineRandom = rcRandomText; rcLineRandom.top += 16;
+    DrawTextSDF(g_hdcBuffer, L"_", &rcLineRandom, DT_RIGHT | DT_VCENTER | DT_SINGLELINE, hFontSmall, (g_hoverId == HIT_RANDOM) ? UI_PRIMARY_HOVER : UI_PRIMARY_COLOR);
 
-    if (g_hAppearanceDialog) {
-        EnableWindow(g_timerState.hMainWnd, FALSE);
-        SetForegroundWindow(g_hAppearanceDialog);
-        DWORD cornerPref = DWMWCP_ROUND;
-        DwmSetWindowAttribute(g_hAppearanceDialog, DWMWA_WINDOW_CORNER_PREFERENCE, &cornerPref, sizeof(cornerPref));
-        MARGINS shadow = {1, 1, 1, 1};
-        DwmExtendFrameIntoClientArea(g_hAppearanceDialog, &shadow);
+    // Row 2: Opacity Slider
+    RECT rcLabelOp = {rcSliderTrack.left, rcSliderTrack.top - 25, rcSliderTrack.right, rcSliderTrack.top};
+    DrawTextSDF(g_hdcBuffer, texts->opacity, &rcLabelOp, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(30,30,30));
+    
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 3, 3, rcSliderTrack.left, rcSliderTrack.top, rcSliderTrack.right-rcSliderTrack.left, rcSliderTrack.bottom-rcSliderTrack.top, 220, 220, 225, 255);
+    float pct = (g_tempOpacity - 50) / 205.0f;
+    if (pct < 0) pct = 0; if (pct > 1) pct = 1;
+    int fillW = (int)((rcSliderTrack.right - rcSliderTrack.left) * pct);
+    if (fillW > 0) {
+        FillStripedRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 3, 3, rcSliderTrack.left, rcSliderTrack.top, fillW, rcSliderTrack.bottom-rcSliderTrack.top, 60, 120, 180, 255);
     }
+    
+    int thumbX = rcSliderTrack.left + fillW;
+    int thumbY = rcSliderTrack.top + (rcSliderTrack.bottom - rcSliderTrack.top)/2;
+    // Thumb shadow
+    DrawSoftShadowSDF(g_pBits, DLG_WIDTH, DLG_HEIGHT, thumbX - sliderThumbR, thumbY - sliderThumbR, sliderThumbR*2, sliderThumbR*2, sliderThumbR, 8, 2, 0.2f);
+    // Thumb body
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, sliderThumbR, sliderThumbR, thumbX - sliderThumbR, thumbY - sliderThumbR, sliderThumbR*2, sliderThumbR*2, 255, 255, 255, 255);
+    // Thumb border
+    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, sliderThumbR, sliderThumbR, thumbX - sliderThumbR, thumbY - sliderThumbR, sliderThumbR*2, sliderThumbR*2, 2, 60, 120, 180, 255);
+
+    wchar_t opText[16]; swprintf(opText, 16, L"%d%%", (int)((g_tempOpacity/255.0f)*100));
+    RECT rcOpText = {rcSliderTrack.right + 15, rcSliderTrack.top - 5, rcSliderTrack.right + 60, rcSliderTrack.bottom + 5};
+    DrawTextSDF(g_hdcBuffer, opText, &rcOpText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontBtn, RGB(30,30,30));
+
+    // Row 3: Font Combobox
+    RECT rcLabelFnt = {rcFontCombo.left, rcFontCombo.top - 25, rcFontCombo.right, rcFontCombo.top};
+    DrawTextSDF(g_hdcBuffer, texts->font, &rcLabelFnt, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(30,30,30));
+    
+    BOOL comboHover = (g_hoverId == HIT_FONT_COMBO);
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, rcFontCombo.left, rcFontCombo.top, rcFontCombo.right-rcFontCombo.left, rcFontCombo.bottom-rcFontCombo.top, 255, 255, 255, 255);
+    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, rcFontCombo.left, rcFontCombo.top, rcFontCombo.right-rcFontCombo.left, rcFontCombo.bottom-rcFontCombo.top, 2, comboHover?0:80, comboHover?120:100, comboHover?190:120, 255);
+    
+    RECT rcFntText = rcFontCombo; rcFntText.left += 15;
+    DrawTextSDF(g_hdcBuffer, g_tempFontName, &rcFntText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(30,30,30));
+    
+    // Draw Chevron Down
+    HPEN hPenLine = CreatePen(PS_SOLID, 2, comboHover?RGB(0,120,190):RGB(80,100,120));
+    HGDIOBJ hOldPen = SelectObject(g_hdcBuffer, hPenLine);
+    int cx = rcFontCombo.right - 20;
+    int cy = rcFontCombo.top + (rcFontCombo.bottom - rcFontCombo.top)/2 - 2;
+    MoveToEx(g_hdcBuffer, cx - 5, cy - 2, NULL);
+    LineTo(g_hdcBuffer, cx, cy + 3);
+    LineTo(g_hdcBuffer, cx + 5, cy - 2);
+    SelectObject(g_hdcBuffer, hOldPen);
+    DeleteObject(hPenLine);
+    
+    // Alpha fix for Chevron
+    for (int y = cy - 4; y <= cy + 5; y++) {
+        BYTE* row = g_pBits + (y * DLG_WIDTH * 4);
+        for (int x = cx - 6; x <= cx + 6; x++) {
+            row[x * 4 + 3] = 255;
+        }
+    }
+
+    // Row 4: Transparency Toggle
+    DrawSoftShadowSDF(g_pBits, DLG_WIDTH, DLG_HEIGHT, rcToggleCard.left, rcToggleCard.top, rcToggleCard.right-rcToggleCard.left, rcToggleCard.bottom-rcToggleCard.top, 8, 10, 2, 0.08f);
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8, rcToggleCard.left, rcToggleCard.top, rcToggleCard.right-rcToggleCard.left, rcToggleCard.bottom-rcToggleCard.top, 255, 255, 255, 255);
+    
+    RECT rcToggleText = rcToggleCard; rcToggleText.left += 15;
+    DrawTextSDF(g_hdcBuffer, texts->transparentBackground, &rcToggleText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(30,30,30));
+    
+    // Draw Switch
+    int swX = rcToggleSwitch.left;
+    int swY = rcToggleSwitch.top;
+    int swW = rcToggleSwitch.right - rcToggleSwitch.left;
+    int swH = rcToggleSwitch.bottom - rcToggleSwitch.top;
+    if (g_tempTransparentBackground) {
+        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, swH/2, swH/2, swX, swY, swW, swH, 0, 103, 192, 255);
+        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, (swH-4)/2, (swH-4)/2, swX + swW - (swH-4) - 2, swY + 2, swH-4, swH-4, 255, 255, 255, 255);
+    } else {
+        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, swH/2, swH/2, swX, swY, swW, swH, 180, 180, 180, 255);
+        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, (swH-4)/2, (swH-4)/2, swX + 2, swY + 2, swH-4, swH-4, 255, 255, 255, 255);
+    }
+
+    // Row 5: Action Buttons
+    // Apply
+    BOOL applyHover = (g_hoverId == HIT_BTN_APPLY);
+    BOOL applyPressed = (g_pressedId == HIT_BTN_APPLY);
+    int ay = rcBtnApply.top + (applyPressed ? 1 : 0);
+    DrawSoftShadowSDF(g_pBits, DLG_WIDTH, DLG_HEIGHT, rcBtnApply.left, ay, rcBtnApply.right-rcBtnApply.left, rcBtnApply.bottom-rcBtnApply.top, (rcBtnApply.bottom-rcBtnApply.top)/2, 12, 4, 0.2f);
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, (rcBtnApply.bottom-rcBtnApply.top)/2, (rcBtnApply.bottom-rcBtnApply.top)/2, rcBtnApply.left, ay, rcBtnApply.right-rcBtnApply.left, rcBtnApply.bottom-rcBtnApply.top, applyHover?0:30, applyHover?90:110, applyHover?180:190, 255);
+    RECT rcApplyT = rcBtnApply; rcApplyT.top = ay; rcApplyT.bottom = ay + (rcBtnApply.bottom-rcBtnApply.top);
+    DrawTextSDF(g_hdcBuffer, L"Apply", &rcApplyT, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, RGB(255,255,255));
+
+    // Cancel
+    BOOL cancelHover = (g_hoverId == HIT_BTN_CANCEL);
+    BOOL cancelPressed = (g_pressedId == HIT_BTN_CANCEL);
+    int btnCy = rcBtnCancel.top + (cancelPressed ? 1 : 0);
+    DrawSoftShadowSDF(g_pBits, DLG_WIDTH, DLG_HEIGHT, rcBtnCancel.left, btnCy, rcBtnCancel.right-rcBtnCancel.left, rcBtnCancel.bottom-rcBtnCancel.top, (rcBtnCancel.bottom-rcBtnCancel.top)/2, 10, 2, 0.1f);
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, (rcBtnCancel.bottom-rcBtnCancel.top)/2, (rcBtnCancel.bottom-rcBtnCancel.top)/2, rcBtnCancel.left, btnCy, rcBtnCancel.right-rcBtnCancel.left, rcBtnCancel.bottom-rcBtnCancel.top, cancelHover?130:150, cancelHover?130:150, cancelHover?135:155, 255);
+    RECT rcCancelT = rcBtnCancel; rcCancelT.top = btnCy; rcCancelT.bottom = btnCy + (rcBtnCancel.bottom-rcBtnCancel.top);
+    DrawTextSDF(g_hdcBuffer, L"Cancel", &rcCancelT, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, RGB(255,255,255));
+
+    DeleteObject(hFontLabel);
+    DeleteObject(hFontSmall);
+    DeleteObject(hFontBtn);
 }
 
-// 字体预览辅助函数
-void ApplyFontPreview(const wchar_t* fontName) {
-    if (!fontName || wcslen(fontName) == 0) return;
-    wcscpy_s(g_timerState.currentFontName, sizeof(g_timerState.currentFontName)/sizeof(wchar_t), fontName);
+static void UpdateAppearanceLayeredWindow() {
+    RenderDialogUI();
+    HDC hdc = GetDC(NULL); 
+    POINT dst = {0,0}, src = {0,0}; 
+    SIZE sz = {DLG_WIDTH, DLG_HEIGHT}; 
+    BLENDFUNCTION bf = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
+    RECT rc; GetWindowRect(g_hAppearanceDialog, &rc); 
+    dst.x = rc.left; dst.y = rc.top;
+    UpdateLayeredWindow(g_hAppearanceDialog, hdc, &dst, &sz, g_hdcBuffer, &src, 0, &bf, ULW_ALPHA); 
+    ReleaseDC(NULL, hdc);
+}
+
+static void ApplyPreview() {
+    g_timerState.fontColor = g_tempFontColor;
+    g_timerState.backgroundColor = g_tempBackgroundColor;
+    g_timerState.windowOpacity = g_tempOpacity;
+    
+    wcscpy_s(g_timerState.currentFontName, sizeof(g_timerState.currentFontName)/sizeof(wchar_t), g_tempFontName);
     ClearFontCache();
     g_timerState.cachedFontValid = FALSE;
     g_timerState.cachedHFont = NULL;
-    if (g_timerState.hMainWnd && IsWindow(g_timerState.hMainWnd)) {
+
+    if (g_tempTransparentBackground != g_timerState.transparentBackground) {
+        g_timerState.transparentBackground = g_tempTransparentBackground;
+        LONG exStyle = GetWindowLong(g_timerState.hMainWnd, GWL_EXSTYLE);
+        SetWindowLong(g_timerState.hMainWnd, GWL_EXSTYLE, exStyle & ~WS_EX_LAYERED);
+        SetWindowLong(g_timerState.hMainWnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED);
+        if (g_tempTransparentBackground) {
+            SetWindowRoundedCorners(g_timerState.hMainWnd, 0);
+            SetWindowShadow(g_timerState.hMainWnd, FALSE);
+            UpdateLayeredWindow_Render();
+        } else {
+            SetWindowRoundedCorners(g_timerState.hMainWnd, 6);
+            SetWindowShadow(g_timerState.hMainWnd, TRUE);
+            SetLayeredWindowAttributes(g_timerState.hMainWnd, 0, g_tempOpacity, LWA_ALPHA);
+            InvalidateRect(g_timerState.hMainWnd, NULL, TRUE);
+            UpdateWindow(g_timerState.hMainWnd);
+        }
+    } else {
         if (g_timerState.transparentBackground) {
             UpdateLayeredWindow_Render();
         } else {
+            SetLayeredWindowAttributes(g_timerState.hMainWnd, 0, g_tempOpacity, LWA_ALPHA);
             InvalidateRect(g_timerState.hMainWnd, NULL, TRUE);
             UpdateWindow(g_timerState.hMainWnd);
         }
     }
 }
 
-void RestoreOriginalFont() {
-    if (g_fontPreviewActive && wcslen(g_originalFontName) > 0) {
-        wcscpy_s(g_timerState.currentFontName, sizeof(g_timerState.currentFontName)/sizeof(wchar_t), g_originalFontName);
-        ClearFontCache();
-        g_timerState.cachedFontValid = FALSE;
-        g_timerState.cachedHFont = NULL;
-        if (g_timerState.hMainWnd && IsWindow(g_timerState.hMainWnd)) {
-            if (g_timerState.transparentBackground) {
-                UpdateLayeredWindow_Render();
-            } else {
-                InvalidateRect(g_timerState.hMainWnd, NULL, TRUE);
-                UpdateWindow(g_timerState.hMainWnd);
-            }
-        }
-        // DO NOT set g_fontPreviewActive to FALSE here, let CBN_CLOSEUP handle it.
-    }
+static HitTestID HitTest(POINT pt) {
+    if (PtInRect(&rcFontColorBox, pt)) return HIT_FONT_COLOR;
+    if (PtInRect(&rcBgColorBox, pt)) return HIT_BG_COLOR;
+    if (PtInRect(&rcResetText, pt)) return HIT_RESET;
+    if (PtInRect(&rcRandomText, pt)) return HIT_RANDOM;
+    if (PtInRect(&rcSliderTrack, pt)) return HIT_SLIDER_TRACK;
+    
+    int fillW = (int)((rcSliderTrack.right - rcSliderTrack.left) * ((g_tempOpacity - 50) / 205.0f));
+    int thumbX = rcSliderTrack.left + fillW;
+    int thumbY = rcSliderTrack.top + (rcSliderTrack.bottom - rcSliderTrack.top)/2;
+    RECT rcThumb = {thumbX - sliderThumbR, thumbY - sliderThumbR, thumbX + sliderThumbR, thumbY + sliderThumbR};
+    if (PtInRect(&rcThumb, pt)) return HIT_SLIDER_THUMB;
+    
+    if (PtInRect(&rcFontCombo, pt)) return HIT_FONT_COMBO;
+    if (PtInRect(&rcToggleCard, pt)) return HIT_TOGGLE_BG;
+    if (PtInRect(&rcBtnApply, pt)) return HIT_BTN_APPLY;
+    if (PtInRect(&rcBtnCancel, pt)) return HIT_BTN_CANCEL;
+    if (PtInRect(&rcCard, pt)) return HIT_CARD_BG;
+    return HIT_NONE;
 }
 
-LRESULT CALLBACK FontListSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    static int lastHoverIndex = -1;
-    switch (uMsg) {
-        case WM_MOUSEMOVE: {
-            TRACKMOUSEEVENT tme = {sizeof(TRACKMOUSEEVENT), TME_LEAVE, hwnd, 0};
-            TrackMouseEvent(&tme);
-            POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-            int itemIndex = (int)SendMessage(hwnd, LB_ITEMFROMPOINT, 0, MAKELPARAM(pt.x, pt.y));
-            if (HIWORD(itemIndex) == 0 && LOWORD(itemIndex) != lastHoverIndex) {
-                int realIndex = LOWORD(itemIndex);
-                int totalCount = (int)SendMessage(hwnd, LB_GETCOUNT, 0, 0);
-                if (realIndex >= 0 && realIndex < totalCount) {
-                    wchar_t fontName[256];
-                    if (SendMessageW(hwnd, LB_GETTEXT, realIndex, (LPARAM)fontName) != LB_ERR) {
-                        ApplyFontPreview(fontName);
-                        lastHoverIndex = realIndex;
-                    }
-                }
-            }
-            break;
-        }
-        case WM_MOUSELEAVE: lastHoverIndex = -1; break;
-    }
-    return CallWindowProc(g_originalListProc, hwnd, uMsg, wParam, lParam);
-}
-
-LRESULT CALLBACK FontComboSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    static int lastHoverIndex = -1;
-    switch (uMsg) {
-        case WM_MOUSEMOVE: {
-            if (!g_fontPreviewActive) break;
-            TRACKMOUSEEVENT tme = {sizeof(TRACKMOUSEEVENT), TME_LEAVE, hwnd, 0};
-            TrackMouseEvent(&tme);
-            COMBOBOXINFO cbi = {sizeof(COMBOBOXINFO)};
-            if (GetComboBoxInfo(hwnd, &cbi) && cbi.hwndList && IsWindowVisible(cbi.hwndList)) {
-                POINT screenPt; GetCursorPos(&screenPt);
-                RECT listWindowRect; GetWindowRect(cbi.hwndList, &listWindowRect);
-                if (screenPt.x >= listWindowRect.left && screenPt.x <= listWindowRect.right && 
-                    screenPt.y >= listWindowRect.top && screenPt.y <= listWindowRect.bottom) {
-                    POINT listPt = screenPt; ScreenToClient(cbi.hwndList, &listPt);
-                    int itemIndex = (int)SendMessage(cbi.hwndList, LB_ITEMFROMPOINT, 0, MAKELPARAM(listPt.x, listPt.y));
-                    if (HIWORD(itemIndex) == 0 && LOWORD(itemIndex) != lastHoverIndex) {
-                        int realIndex = LOWORD(itemIndex);
-                        int totalCount = (int)SendMessage(hwnd, CB_GETCOUNT, 0, 0);
-                        if (realIndex >= 0 && realIndex < totalCount) {
-                            wchar_t fontName[256];
-                            if (SendMessageW(hwnd, CB_GETLBTEXT, realIndex, (LPARAM)fontName) != CB_ERR) {
-                                ApplyFontPreview(fontName);
-                                lastHoverIndex = realIndex;
-                            }
-                        }
-                    }
-                }
-            }
-            break;
-        }
-        case WM_MOUSELEAVE: {
-            lastHoverIndex = -1;
-            break;
-        }
-    }
-    return CallWindowProc(g_originalComboProc, hwnd, uMsg, wParam, lParam);
-}
-
-LRESULT CALLBACK AppearanceDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
-    switch (message) {
+LRESULT CALLBACK ModernAppearanceDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch(msg) {
         case WM_CREATE: {
-            const MenuTexts* texts = GetMenuTexts();
+            g_hAppearanceDialog = hwnd;
+            HDC hdc = GetDC(NULL); g_hdcBuffer = CreateCompatibleDC(hdc);
+            BITMAPINFOHEADER bi = {sizeof(bi), DLG_WIDTH, -DLG_HEIGHT, 1, 32, BI_RGB};
+            g_hbmBuffer = CreateDIBSection(hdc, (BITMAPINFO*)&bi, DIB_RGB_COLORS, (void**)&g_pBits, NULL, 0);
+            SelectObject(g_hdcBuffer, g_hbmBuffer);
+            ReleaseDC(NULL, hdc);
             
             g_originalFontColor = g_timerState.fontColor;
             g_originalBackgroundColor = g_timerState.backgroundColor;
             g_originalOpacity = g_timerState.windowOpacity;
             g_originalTransparentBackground = g_timerState.transparentBackground;
-            
-            g_tempFontColor = g_timerState.fontColor;
-            g_tempBackgroundColor = g_timerState.backgroundColor;
-            g_tempOpacity = g_timerState.windowOpacity;
-            
             wcscpy_s(g_originalFontName, 256, g_timerState.currentFontName);
-            g_fontPreviewActive = FALSE;
             
-            // 字体选择下拉框
-            HWND hFontCombo = CreateWindowW(L"COMBOBOX", L"", 
-                WS_VISIBLE | WS_CHILD | CBS_DROPDOWNLIST | CBS_SORT | WS_VSCROLL | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS,
-                210, 50, 180, 200, hDlg, (HMENU)ID_APPEARANCE_FONT_COMBO, GetModuleHandle(NULL), NULL);
+            g_tempFontColor = g_originalFontColor;
+            g_tempBackgroundColor = g_originalBackgroundColor;
+            g_tempOpacity = g_originalOpacity;
+            g_tempTransparentBackground = g_originalTransparentBackground;
+            wcscpy_s(g_tempFontName, 256, g_originalFontName);
             
-            if (hFontCombo) {
-                if (InitializeFontResourceSystem()) {
-                    wchar_t fontNames[32][256];
-                    int fontCount = GetMixedFontList(fontNames, 32);
-                    for (int i = 0; i < fontCount; i++) {
-                        SendMessageW(hFontCombo, CB_ADDSTRING, 0, (LPARAM)fontNames[i]);
-                    }
-                } else {
-                    for (int i = 0; i < GetAvailableFontCount(); i++) {
-                        const FontInfo* fontInfo = GetFontInfoByIndex(i);
-                        if (fontInfo) SendMessageW(hFontCombo, CB_ADDSTRING, 0, (LPARAM)fontInfo->displayName);
-                    }
-                }
-                int currentIndex = SendMessageW(hFontCombo, CB_FINDSTRINGEXACT, -1, (LPARAM)g_timerState.currentFontName);
-                if (currentIndex == CB_ERR) currentIndex = 0;
-                SendMessageW(hFontCombo, CB_SETCURSEL, currentIndex, 0);
-                
-                g_fontComboBox = hFontCombo;
-                g_originalComboProc = (WNDPROC)SetWindowLongPtr(hFontCombo, GWLP_WNDPROC, (LONG_PTR)FontComboSubclassProc);
-                
-                TRACKMOUSEEVENT tme = {sizeof(TRACKMOUSEEVENT), TME_LEAVE, hFontCombo, 0};
-                TrackMouseEvent(&tme);
-            }
-
-            // 字体颜色按钮 (圆形)
-            CreateWindowW(L"BUTTON", L"", WS_VISIBLE | WS_CHILD | BS_OWNERDRAW,
-                350, 105, 36, 36, hDlg, (HMENU)ID_APPEARANCE_FONT_COLOR, GetModuleHandle(NULL), NULL);
-
-            // 背景透明开关
-            CreateWindowW(L"BUTTON", L"", WS_VISIBLE | WS_CHILD | BS_OWNERDRAW,
-                340, 210, 46, 24, hDlg, (HMENU)ID_APPEARANCE_TRANSPARENT_BG, GetModuleHandle(NULL), NULL);
-
-            // 背景颜色按钮 (圆形)
-            CreateWindowW(L"BUTTON", L"", WS_VISIBLE | WS_CHILD | BS_OWNERDRAW,
-                350, 265, 36, 36, hDlg, (HMENU)ID_APPEARANCE_BG_COLOR, GetModuleHandle(NULL), NULL);
-
-            // 透明度滑块 - 静态控件子类化
-            HWND hOpacitySlider = CreateWindowW(L"STATIC", L"", WS_VISIBLE | WS_CHILD | SS_NOTIFY,
-                60, 340, 290, 30, hDlg, (HMENU)ID_APPEARANCE_OPACITY_SLIDER, GetModuleHandle(NULL), NULL);
-            if (hOpacitySlider) {
-                g_originalSliderProc = (WNDPROC)SetWindowLongPtr(hOpacitySlider, GWLP_WNDPROC, (LONG_PTR)OpacitySliderSubclassProc);
-            }
-            
-            // 透明度值标签
-            wchar_t opacityText[16];
-            swprintf(opacityText, 16, L"%d%%", (int)((g_timerState.windowOpacity / 255.0) * 100));
-            CreateWindowW(L"STATIC", opacityText, WS_VISIBLE | WS_CHILD | SS_RIGHT,
-                350, 345, 40, 20, hDlg, (HMENU)ID_APPEARANCE_OPACITY_LABEL, GetModuleHandle(NULL), NULL);
-
-            // 底部操作按钮
-            CreateWindowW(L"BUTTON", texts->resetButton, WS_VISIBLE | WS_CHILD | BS_OWNERDRAW,
-                30, 450, 80, 32, hDlg, (HMENU)ID_APPEARANCE_BTN_RESET, GetModuleHandle(NULL), NULL);
-            CreateWindowW(L"BUTTON", texts->randomButton, WS_VISIBLE | WS_CHILD | BS_OWNERDRAW,
-                120, 450, 80, 32, hDlg, (HMENU)ID_APPEARANCE_BTN_RANDOM, GetModuleHandle(NULL), NULL);
-            CreateWindowW(L"BUTTON", texts->cancel, WS_VISIBLE | WS_CHILD | BS_OWNERDRAW,
-                260, 450, 80, 32, hDlg, (HMENU)ID_APPEARANCE_BTN_CANCEL, GetModuleHandle(NULL), NULL);
-            CreateWindowW(L"BUTTON", texts->ok, WS_VISIBLE | WS_CHILD | BS_OWNERDRAW,
-                350, 450, 80, 32, hDlg, (HMENU)ID_APPEARANCE_BTN_OK, GetModuleHandle(NULL), NULL);
-
-            TRACKMOUSEEVENT tme = {sizeof(TRACKMOUSEEVENT), TME_LEAVE, hDlg, 0};
-            TrackMouseEvent(&tme);
+            RebuildFontMenu();
+            UpdateAppearanceLayeredWindow();
+            // 启动刷新定时器（ID=2），确保主窗口在面板存活期间持续重绘
+            // （计时器暂停时主窗口没有 WM_TIMER 驱动，需要由此补偿）
+            SetTimer(hwnd, 2, 100, NULL);
             return 0;
         }
-
-        case WM_MEASUREITEM: {
-            LPMEASUREITEMSTRUCT mis = (LPMEASUREITEMSTRUCT)lParam;
-            if (mis->CtlID == ID_APPEARANCE_FONT_COMBO) {
-                mis->itemHeight = 32; // Taller items
-                return TRUE;
-            }
-            break;
-        }
-
-        case WM_ERASEBKGND: {
-            HDC hdc = (HDC)wParam;
-            RECT rect; GetClientRect(hDlg, &rect);
-            HBRUSH hBrush = CreateSolidBrush(RGB(245, 245, 247));
-            FillRect(hdc, &rect, hBrush);
-            DeleteObject(hBrush);
-
-            // Draw Cards
-            // Card 1: Typography
-            RECT card1 = {20, 20, 440, 160};
-            DrawModernCard(hdc, &card1);
-            
-            // Card 2: Background
-            RECT card2 = {20, 180, 440, 390};
-            DrawModernCard(hdc, &card2);
-
-            // Draw Static Texts
-            SetBkMode(hdc, TRANSPARENT);
-            SetTextColor(hdc, UI_LIGHT_TEXT_PRIMARY);
-            HFONT hFont = CreateFontW(14,0,0,0,FW_NORMAL,0,0,0,DEFAULT_CHARSET,0,0,CLEARTYPE_QUALITY,0,L"Segoe UI");
-            HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
-
-            const MenuTexts* texts = GetMenuTexts();
-            RECT rcLabel;
-            
-            // Card 1 Labels
-            SetTextColor(hdc, RGB(100, 100, 105)); // Section Title
-            rcLabel = (RECT){40, 35, 200, 55}; DrawTextW(hdc, L"字体与颜色 (Typography)", -1, &rcLabel, DT_LEFT);
-            SetTextColor(hdc, UI_LIGHT_TEXT_PRIMARY);
-            rcLabel = (RECT){40, 65, 200, 85}; DrawTextW(hdc, texts->font, -1, &rcLabel, DT_LEFT);
-            rcLabel = (RECT){40, 115, 200, 135}; DrawTextW(hdc, texts->fontColor, -1, &rcLabel, DT_LEFT);
-
-            // Card 2 Labels
-            SetTextColor(hdc, RGB(100, 100, 105)); // Section Title
-            rcLabel = (RECT){40, 195, 200, 215}; DrawTextW(hdc, L"背景与窗口 (Background)", -1, &rcLabel, DT_LEFT);
-            SetTextColor(hdc, UI_LIGHT_TEXT_PRIMARY);
-            rcLabel = (RECT){40, 225, 280, 245}; DrawTextW(hdc, texts->transparentBackground, -1, &rcLabel, DT_LEFT);
-            rcLabel = (RECT){40, 275, 200, 295}; DrawTextW(hdc, texts->backgroundColor, -1, &rcLabel, DT_LEFT);
-            rcLabel = (RECT){40, 325, 200, 345}; DrawTextW(hdc, texts->opacity, -1, &rcLabel, DT_LEFT);
-
-            SelectObject(hdc, hOldFont);
-            DeleteObject(hFont);
-            return TRUE;
-        }
-
-        case WM_CTLCOLORSTATIC: {
-            HDC hdcStatic = (HDC)wParam;
-            SetTextColor(hdcStatic, UI_LIGHT_TEXT_PRIMARY);
-            SetBkColor(hdcStatic, RGB(255, 255, 255)); // Inside cards
-            return (LRESULT)GetStockObject(NULL_BRUSH);
-        }
-
-        case WM_DRAWITEM: {
-            LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
-            
-            if (dis->CtlID == ID_APPEARANCE_FONT_COMBO) {
-                if (dis->itemID != -1) {
-                    wchar_t fontName[256];
-                    SendMessageW(dis->hwndItem, CB_GETLBTEXT, dis->itemID, (LPARAM)fontName);
-                    
-                    // 背景
-                    COLORREF bgColor = (dis->itemState & ODS_SELECTED) ? UI_PRIMARY_COLOR : RGB(255,255,255);
-                    HBRUSH hBg = CreateSolidBrush(bgColor);
-                    FillRect(dis->hDC, &dis->rcItem, hBg);
-                    DeleteObject(hBg);
-                    
-                    // 文本
-                    SetBkMode(dis->hDC, TRANSPARENT);
-                    COLORREF textColor = (dis->itemState & ODS_SELECTED) ? RGB(255,255,255) : UI_LIGHT_TEXT_PRIMARY;
-                    SetTextColor(dis->hDC, textColor);
-                    
-                    // 使用实际字体渲染预览
-                    HFONT hItemFont = CreateFontW(18,0,0,0,FW_NORMAL,0,0,0,DEFAULT_CHARSET,0,0,CLEARTYPE_QUALITY,0,fontName);
-                    HFONT hOldFont = (HFONT)SelectObject(dis->hDC, hItemFont);
-                    
-                    RECT textRect = dis->rcItem;
-                    textRect.left += 10;
-                    DrawTextW(dis->hDC, fontName, -1, &textRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-                    
-                    SelectObject(dis->hDC, hOldFont);
-                    DeleteObject(hItemFont);
+        case WM_TIMER: {
+            if (wParam == 2 && g_timerState.hMainWnd) {
+                // 驱动主窗口刷新，使字体悬停预览实时可见
+                if (g_timerState.transparentBackground) {
+                    UpdateLayeredWindow_Render();
+                } else {
+                    InvalidateRect(g_timerState.hMainWnd, NULL, FALSE);
+                    UpdateWindow(g_timerState.hMainWnd);
                 }
-                return TRUE;
             }
-            
-            if (dis->CtlID == ID_APPEARANCE_TRANSPARENT_BG) {
-                // Clear background
-                HBRUSH bgBrush = CreateSolidBrush(RGB(255, 255, 255));
-                FillRect(dis->hDC, &dis->rcItem, bgBrush);
-                DeleteObject(bgBrush);
-                DrawSwitch(dis->hDC, &dis->rcItem, g_timerState.transparentBackground);
-                return TRUE;
-            }
-            
-            if (dis->CtlID == ID_APPEARANCE_FONT_COLOR || dis->CtlID == ID_APPEARANCE_BG_COLOR) {
-                COLORREF color = (dis->CtlID == ID_APPEARANCE_FONT_COLOR) ? g_tempFontColor : g_tempBackgroundColor;
-                HBRUSH bgBrush = CreateSolidBrush(RGB(255, 255, 255));
-                FillRect(dis->hDC, &dis->rcItem, bgBrush);
-                DeleteObject(bgBrush);
-                
-                HBRUSH hColorBrush = CreateSolidBrush(color);
-                HPEN hPen = CreatePen(PS_SOLID, 1, RGB(200, 200, 200));
-                HGDIOBJ hOldB = SelectObject(dis->hDC, hColorBrush);
-                HGDIOBJ hOldP = SelectObject(dis->hDC, hPen);
-                
-                Ellipse(dis->hDC, dis->rcItem.left + 2, dis->rcItem.top + 2, dis->rcItem.right - 2, dis->rcItem.bottom - 2);
-                
-                SelectObject(dis->hDC, hOldB);
-                SelectObject(dis->hDC, hOldP);
-                DeleteObject(hColorBrush);
-                DeleteObject(hPen);
-                return TRUE;
-            }
-
-            if (dis->CtlID == ID_APPEARANCE_BTN_OK || dis->CtlID == ID_APPEARANCE_BTN_CANCEL ||
-                dis->CtlID == ID_APPEARANCE_BTN_RESET || dis->CtlID == ID_APPEARANCE_BTN_RANDOM) {
-
-                BOOL isHover = (g_hAppearanceHoverBtn == dis->hwndItem);
-                BOOL isPressed = (g_hAppearancePressedBtn == dis->hwndItem);
-                BOOL isOK = (dis->CtlID == ID_APPEARANCE_BTN_OK);
-
-                COLORREF fillColor = isOK ? UI_PRIMARY_COLOR : RGB(235, 235, 240);
-                if (isPressed) fillColor = isOK ? UI_PRIMARY_PRESSED : RGB(215, 215, 220);
-                else if (isHover) fillColor = isOK ? UI_PRIMARY_HOVER : RGB(225, 225, 230);
-
-                COLORREF borderColor = isOK ? UI_PRIMARY_COLOR : RGB(220, 220, 225);
-                int radius = 8;
-                RECT btnRect = dis->rcItem;
-                if (isPressed) { btnRect.top++; btnRect.bottom++; }
-
-                // Dialog background is light gray
-                HBRUSH bgBrush = CreateSolidBrush(RGB(245, 245, 247));
-                FillRect(dis->hDC, &dis->rcItem, bgBrush);
-                DeleteObject(bgBrush);
-
-                DrawRoundRect(dis->hDC, &btnRect, radius, fillColor, borderColor, 1);
-
-                const wchar_t* btnText = NULL;
-                const MenuTexts* texts = GetMenuTexts();
-                switch (dis->CtlID) {
-                    case ID_APPEARANCE_BTN_OK: btnText = texts->ok; break;
-                    case ID_APPEARANCE_BTN_CANCEL: btnText = texts->cancel; break;
-                    case ID_APPEARANCE_BTN_RESET: btnText = texts->resetButton; break;
-                    case ID_APPEARANCE_BTN_RANDOM: btnText = texts->randomButton; break;
-                }
-
-                if (btnText) {
-                    SetBkMode(dis->hDC, TRANSPARENT);
-                    SetTextColor(dis->hDC, isOK ? RGB(255, 255, 255) : UI_LIGHT_TEXT_PRIMARY);
-                    DrawTextW(dis->hDC, btnText, -1, &btnRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-                }
-                return TRUE;
-            }
-            return TRUE;
+            return 0;
         }
-
-        case WM_COMMAND: {
-            if (HIWORD(wParam) == CBN_SELCHANGE && LOWORD(wParam) == ID_APPEARANCE_FONT_COMBO) {
-                HWND hFontCombo = GetDlgItem(hDlg, ID_APPEARANCE_FONT_COMBO);
-                if (hFontCombo) {
-                    int selectedIndex = SendMessageW(hFontCombo, CB_GETCURSEL, 0, 0);
-                    if (selectedIndex != CB_ERR) {
-                        wchar_t selectedFont[256] = {0};
-                        int len = SendMessageW(hFontCombo, CB_GETLBTEXT, selectedIndex, (LPARAM)selectedFont);
-                        if (len != CB_ERR && len > 0) {
-                            wcscpy_s(g_timerState.currentFontName, sizeof(g_timerState.currentFontName)/sizeof(wchar_t), selectedFont);
-                            wcscpy_s(g_originalFontName, sizeof(g_originalFontName)/sizeof(wchar_t), selectedFont);
-                            ClearFontCache();
-                            g_timerState.cachedFontValid = FALSE;
-                            g_timerState.cachedHFont = NULL;
-                            g_fontSelectionMade = TRUE;
-                            if (g_timerState.transparentBackground) {
-                                UpdateLayeredWindow_Render();
-                            } else {
-                                InvalidateRect(g_timerState.hMainWnd, NULL, TRUE);
-                                UpdateWindow(g_timerState.hMainWnd);
-                            }
-                        }
-                    }
-                }
+        case WM_MOUSEMOVE: {
+            POINT pt = {(short)LOWORD(lParam), (short)HIWORD(lParam)};
+            if (g_isDraggingDlg) {
+                POINT cur; GetCursorPos(&cur);
+                int dx = cur.x - g_dragStartScreen.x;
+                int dy = cur.y - g_dragStartScreen.y;
+                SetWindowPos(hwnd, NULL, g_dlgStartRect.left + dx, g_dlgStartRect.top + dy, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                return 0;
+            }
+            if (g_isDraggingSlider) {
+                float pct = (float)(pt.x - rcSliderTrack.left) / (rcSliderTrack.right - rcSliderTrack.left);
+                if (pct < 0) pct = 0; if (pct > 1) pct = 1;
+                g_tempOpacity = (BYTE)(50 + pct * 205);
+                ApplyPreview();
+                UpdateAppearanceLayeredWindow();
                 return 0;
             }
             
-            if (LOWORD(wParam) == ID_APPEARANCE_FONT_COMBO) {
-                if (HIWORD(wParam) == CBN_DROPDOWN) {
-                    HWND hFontCombo = GetDlgItem(hDlg, ID_APPEARANCE_FONT_COMBO);
-                    int curSel = SendMessageW(hFontCombo, CB_GETCURSEL, 0, 0);
-                    if (curSel != CB_ERR) {
-                        wchar_t selFont[256] = {0};
-                        int len = SendMessageW(hFontCombo, CB_GETLBTEXT, curSel, (LPARAM)selFont);
-                        if (len != CB_ERR && len > 0) {
-                            wcscpy_s(g_originalFontName, sizeof(g_originalFontName)/sizeof(wchar_t), selFont);
-                        } else {
-                            wcscpy_s(g_originalFontName, sizeof(g_originalFontName)/sizeof(wchar_t), g_timerState.currentFontName);
-                        }
-                    } else {
-                        wcscpy_s(g_originalFontName, sizeof(g_originalFontName)/sizeof(wchar_t), g_timerState.currentFontName);
-                    }
-                    g_fontPreviewActive = TRUE;
-                    g_fontSelectionMade = FALSE;
-                    
-                    COMBOBOXINFO cbi = {sizeof(COMBOBOXINFO)};
-                    if (GetComboBoxInfo(hFontCombo, &cbi) && cbi.hwndList) {
-                        g_fontListBox = cbi.hwndList;
-                        g_originalListProc = (WNDPROC)SetWindowLongPtr(g_fontListBox, GWLP_WNDPROC, (LONG_PTR)FontListSubclassProc);
-                    }
-                } else if (HIWORD(wParam) == CBN_CLOSEUP) {
-                    if (g_fontListBox && g_originalListProc) {
-                        SetWindowLongPtr(g_fontListBox, GWLP_WNDPROC, (LONG_PTR)g_originalListProc);
-                        g_fontListBox = NULL;
-                        g_originalListProc = NULL;
-                    }
-                    
-                    g_fontPreviewActive = FALSE;
-                    
-                    // The simplest and most robust fix: just read whatever the combobox's 
-                    // current selection is right now, and apply it to the timer!
-                    // This perfectly handles both ESC (selection doesn't change) and clicks (selection changes).
-                    HWND hFontCombo = GetDlgItem(hDlg, ID_APPEARANCE_FONT_COMBO);
-                    if (hFontCombo) {
-                        int curSel = SendMessageW(hFontCombo, CB_GETCURSEL, 0, 0);
-                        if (curSel != CB_ERR) {
-                            wchar_t finalFont[256] = {0};
-                            if (SendMessageW(hFontCombo, CB_GETLBTEXT, curSel, (LPARAM)finalFont) != CB_ERR) {
-                                wcscpy_s(g_timerState.currentFontName, sizeof(g_timerState.currentFontName)/sizeof(wchar_t), finalFont);
-                                ClearFontCache();
-                                g_timerState.cachedFontValid = FALSE;
-                                g_timerState.cachedHFont = NULL;
-                                
-                                if (g_timerState.transparentBackground) {
-                                    UpdateLayeredWindow_Render();
-                                } else {
-                                    InvalidateRect(g_timerState.hMainWnd, NULL, TRUE);
-                                    UpdateWindow(g_timerState.hMainWnd);
-                                }
-                            }
-                        }
-                    }
-                }
-                return 0;
+            HitTestID hit = HitTest(pt);
+            if (hit != g_hoverId) {
+                g_hoverId = hit;
+                UpdateAppearanceLayeredWindow();
             }
+            return 0;
+        }
+        case WM_LBUTTONDOWN: {
+            POINT pt = {(short)LOWORD(lParam), (short)HIWORD(lParam)};
+            HitTestID hit = HitTest(pt);
+            g_pressedId = hit;
+            if (hit == HIT_SLIDER_TRACK || hit == HIT_SLIDER_THUMB) {
+                g_isDraggingSlider = TRUE;
+                SetCapture(hwnd);
+                float pct = (float)(pt.x - rcSliderTrack.left) / (rcSliderTrack.right - rcSliderTrack.left);
+                if (pct < 0) pct = 0; if (pct > 1) pct = 1;
+                g_tempOpacity = (BYTE)(50 + pct * 205);
+                ApplyPreview();
+            } else if (hit == HIT_CARD_BG) {
+                g_isDraggingDlg = TRUE;
+                GetCursorPos(&g_dragStartScreen);
+                GetWindowRect(hwnd, &g_dlgStartRect);
+                SetCapture(hwnd);
+            } else if (hit == HIT_FONT_COMBO) {
+                RECT rc; GetWindowRect(hwnd, &rc);
+                int menuX = rc.left + rcFontCombo.left;
+                int menuY = rc.top + rcFontCombo.bottom;
+                IosMenu_Show(hwnd, menuX, menuY, g_fontMenuItems, g_fontMenuCount);
+            }
+            UpdateAppearanceLayeredWindow();
+            return 0;
+        }
+        case WM_LBUTTONUP: {
+            if (g_isDraggingSlider) { g_isDraggingSlider = FALSE; ReleaseCapture(); }
+            if (g_isDraggingDlg) { g_isDraggingDlg = FALSE; ReleaseCapture(); }
             
-            switch (LOWORD(wParam)) {
-                case ID_APPEARANCE_TRANSPARENT_BG: {
-                    g_timerState.transparentBackground = !g_timerState.transparentBackground;
-                    InvalidateRect(GetDlgItem(hDlg, ID_APPEARANCE_TRANSPARENT_BG), NULL, FALSE);
-                    
-                    LONG exStyle = GetWindowLong(g_timerState.hMainWnd, GWL_EXSTYLE);
-                    SetWindowLong(g_timerState.hMainWnd, GWL_EXSTYLE, exStyle & ~WS_EX_LAYERED);
-                    SetWindowLong(g_timerState.hMainWnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED);
-                    
-                    if (g_timerState.transparentBackground) {
-                        SetWindowRoundedCorners(g_timerState.hMainWnd, 0);
-                        SetWindowShadow(g_timerState.hMainWnd, FALSE);
-                        UpdateLayeredWindow_Render();
-                    } else {
-                        SetWindowRoundedCorners(g_timerState.hMainWnd, 6);
-                        SetWindowShadow(g_timerState.hMainWnd, TRUE);
-                        SetLayeredWindowAttributes(g_timerState.hMainWnd, 0, g_tempOpacity, LWA_ALPHA);
-                        InvalidateRect(g_timerState.hMainWnd, NULL, TRUE);
-                        UpdateWindow(g_timerState.hMainWnd);
-                    }
-                    return 0;
-                }
-
-                case ID_APPEARANCE_FONT_COLOR: {
-                    CHOOSECOLOR cc = {sizeof(CHOOSECOLOR), hDlg, NULL, g_tempFontColor, NULL, CC_FULLOPEN | CC_RGBINIT, 0, 0, NULL};
+            POINT pt = {(short)LOWORD(lParam), (short)HIWORD(lParam)};
+            HitTestID hit = HitTest(pt);
+            if (hit == g_pressedId && hit != HIT_NONE) {
+                if (hit == HIT_FONT_COLOR) {
+                    CHOOSECOLOR cc = {sizeof(CHOOSECOLOR), hwnd, NULL, g_tempFontColor, NULL, CC_FULLOPEN | CC_RGBINIT, 0, 0, NULL};
                     COLORREF customColors[16] = {0}; cc.lpCustColors = customColors;
                     if (ChooseColor(&cc)) {
                         g_tempFontColor = cc.rgbResult;
-                        g_timerState.fontColor = g_tempFontColor;
-                        InvalidateRect(GetDlgItem(hDlg, ID_APPEARANCE_FONT_COLOR), NULL, TRUE);
-                        if (g_timerState.transparentBackground) {
-                            UpdateLayeredWindow_Render();
-                        } else {
-                            InvalidateRect(g_timerState.hMainWnd, NULL, TRUE);
-                            UpdateWindow(g_timerState.hMainWnd);
-                        }
+                        ApplyPreview();
+                        UpdateAppearanceLayeredWindow();
                     }
-                    return 0;
-                }
-                case ID_APPEARANCE_BG_COLOR: {
-                    CHOOSECOLOR cc = {sizeof(CHOOSECOLOR), hDlg, NULL, g_tempBackgroundColor, NULL, CC_FULLOPEN | CC_RGBINIT, 0, 0, NULL};
+                } else if (hit == HIT_BG_COLOR) {
+                    CHOOSECOLOR cc = {sizeof(CHOOSECOLOR), hwnd, NULL, g_tempBackgroundColor, NULL, CC_FULLOPEN | CC_RGBINIT, 0, 0, NULL};
                     COLORREF customColors[16] = {0}; cc.lpCustColors = customColors;
                     if (ChooseColor(&cc)) {
                         g_tempBackgroundColor = cc.rgbResult;
-                        g_timerState.backgroundColor = g_tempBackgroundColor;
-                        InvalidateRect(GetDlgItem(hDlg, ID_APPEARANCE_BG_COLOR), NULL, TRUE);
-                        if (g_timerState.transparentBackground) {
-                            UpdateLayeredWindow_Render();
-                        } else {
-                            InvalidateRect(g_timerState.hMainWnd, NULL, TRUE);
-                            UpdateWindow(g_timerState.hMainWnd);
-                        }
+                        ApplyPreview();
+                        UpdateAppearanceLayeredWindow();
                     }
-                    return 0;
-                }
-                case ID_APPEARANCE_BTN_RESET: {
-                    g_tempFontColor = RGB(255, 255, 255);
-                    if (!g_timerState.transparentBackground) g_tempBackgroundColor = RGB(0, 0, 0);
+                } else if (hit == HIT_RESET) {
+                    g_tempFontColor = RGB(255,255,255);
+                    g_tempBackgroundColor = RGB(0,0,0);
                     g_tempOpacity = 255;
-                    g_timerState.fontColor = g_tempFontColor;
-                    if (!g_timerState.transparentBackground) g_timerState.backgroundColor = g_tempBackgroundColor;
-                    g_timerState.windowOpacity = g_tempOpacity;
-                    
-                    InvalidateRect(GetDlgItem(hDlg, ID_APPEARANCE_FONT_COLOR), NULL, TRUE);
-                    if (!g_timerState.transparentBackground) InvalidateRect(GetDlgItem(hDlg, ID_APPEARANCE_BG_COLOR), NULL, TRUE);
-                    InvalidateRect(GetDlgItem(hDlg, ID_APPEARANCE_OPACITY_SLIDER), NULL, TRUE);
-                    SetWindowTextW(GetDlgItem(hDlg, ID_APPEARANCE_OPACITY_LABEL), L"100%");
-                    
-                    if (g_timerState.transparentBackground) UpdateLayeredWindow_Render();
-                    else {
-                        SetLayeredWindowAttributes(g_timerState.hMainWnd, 0, g_tempOpacity, LWA_ALPHA);
-                        InvalidateRect(g_timerState.hMainWnd, NULL, TRUE);
-                        UpdateWindow(g_timerState.hMainWnd);
-                    }
-                    return 0;
-                }
-                case ID_APPEARANCE_BTN_RANDOM: {
-                    g_tempFontColor = RGB(rand() % 256, rand() % 256, rand() % 256);
-                    if (!g_timerState.transparentBackground) g_tempBackgroundColor = RGB(rand() % 256, rand() % 256, rand() % 256);
-                    g_tempOpacity = 150 + (rand() % 106);
-                    g_timerState.fontColor = g_tempFontColor;
-                    if (!g_timerState.transparentBackground) g_timerState.backgroundColor = g_tempBackgroundColor;
-                    g_timerState.windowOpacity = g_tempOpacity;
-                    
-                    InvalidateRect(GetDlgItem(hDlg, ID_APPEARANCE_FONT_COLOR), NULL, TRUE);
-                    if (!g_timerState.transparentBackground) InvalidateRect(GetDlgItem(hDlg, ID_APPEARANCE_BG_COLOR), NULL, TRUE);
-                    InvalidateRect(GetDlgItem(hDlg, ID_APPEARANCE_OPACITY_SLIDER), NULL, TRUE);
-                    wchar_t opacityText[16]; swprintf(opacityText, 16, L"%d%%", (int)((g_tempOpacity / 255.0) * 100));
-                    SetWindowTextW(GetDlgItem(hDlg, ID_APPEARANCE_OPACITY_LABEL), opacityText);
-                    
-                    if (g_timerState.transparentBackground) UpdateLayeredWindow_Render();
-                    else {
-                        SetLayeredWindowAttributes(g_timerState.hMainWnd, 0, g_tempOpacity, LWA_ALPHA);
-                        InvalidateRect(g_timerState.hMainWnd, NULL, TRUE);
-                        UpdateWindow(g_timerState.hMainWnd);
-                    }
-                    return 0;
-                }
-                case ID_APPEARANCE_BTN_OK: {
-                    g_timerState.fontColor = g_tempFontColor;
-                    g_timerState.backgroundColor = g_tempBackgroundColor;
-                    g_timerState.windowOpacity = g_tempOpacity;
+                    ApplyPreview();
+                    UpdateAppearanceLayeredWindow();
+                } else if (hit == HIT_RANDOM) {
+                    g_tempFontColor = RGB(rand()%256, rand()%256, rand()%256);
+                    g_tempBackgroundColor = RGB(rand()%256, rand()%256, rand()%256);
+                    g_tempOpacity = 150 + (rand()%106);
+                    ApplyPreview();
+                    UpdateAppearanceLayeredWindow();
+                } else if (hit == HIT_TOGGLE_BG) {
+                    g_tempTransparentBackground = !g_tempTransparentBackground;
+                    ApplyPreview();
+                    UpdateAppearanceLayeredWindow();
+                } else if (hit == HIT_BTN_APPLY) {
                     SaveAppearanceConfig();
-                    DestroyWindow(hDlg);
+                    DestroyWindow(hwnd);
                     return 0;
-                }
-                case ID_APPEARANCE_BTN_CANCEL: {
-                    g_timerState.fontColor = g_originalFontColor;
-                    g_timerState.backgroundColor = g_originalBackgroundColor;
-                    g_timerState.windowOpacity = g_originalOpacity;
-                    g_timerState.transparentBackground = g_originalTransparentBackground;
-                    ClearFontCache();
-                    g_timerState.cachedFontValid = FALSE;
-                    g_timerState.cachedHFont = NULL;
-                    LONG exStyle = GetWindowLong(g_timerState.hMainWnd, GWL_EXSTYLE);
-                    SetWindowLong(g_timerState.hMainWnd, GWL_EXSTYLE, exStyle & ~WS_EX_LAYERED);
-                    SetWindowLong(g_timerState.hMainWnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED);
-                    if (g_timerState.transparentBackground) {
-                        SetWindowRoundedCorners(g_timerState.hMainWnd, 0);
-                        SetWindowShadow(g_timerState.hMainWnd, FALSE);
-                        UpdateLayeredWindow_Render();
-                    } else {
-                        SetWindowRoundedCorners(g_timerState.hMainWnd, 6);
-                        SetWindowShadow(g_timerState.hMainWnd, TRUE);
-                        SetLayeredWindowAttributes(g_timerState.hMainWnd, 0, g_originalOpacity, LWA_ALPHA);
-                        InvalidateRect(g_timerState.hMainWnd, NULL, TRUE);
-                        UpdateWindow(g_timerState.hMainWnd);
-                    }
-                    DestroyWindow(hDlg);
+                } else if (hit == HIT_BTN_CANCEL) {
+                    g_tempFontColor = g_originalFontColor;
+                    g_tempBackgroundColor = g_originalBackgroundColor;
+                    g_tempOpacity = g_originalOpacity;
+                    g_tempTransparentBackground = g_originalTransparentBackground;
+                    wcscpy_s(g_tempFontName, 256, g_originalFontName);
+                    ApplyPreview();
+                    DestroyWindow(hwnd);
                     return 0;
                 }
             }
-            break;
-        }
-
-        case WM_MOUSEMOVE: {
-            if (g_isAppearanceDlgDragging) {
-                POINT currentPos; GetCursorPos(&currentPos);
-                int deltaX = currentPos.x - (g_appearanceDlgRectStart.left + g_appearanceDlgDragStart.x);
-                int deltaY = currentPos.y - (g_appearanceDlgRectStart.top + g_appearanceDlgDragStart.y);
-                SetWindowPos(hDlg, NULL, g_appearanceDlgRectStart.left + deltaX, g_appearanceDlgRectStart.top + deltaY,
-                           0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-            }
-            POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-            HWND hHoverCtrl = ChildWindowFromPoint(hDlg, pt);
-            if (hHoverCtrl && (GetWindowLong(hHoverCtrl, GWL_STYLE) & BS_OWNERDRAW)) {
-                if (g_hAppearanceHoverBtn != hHoverCtrl) {
-                    g_hAppearanceHoverBtn = hHoverCtrl;
-                    g_hoverBtnId = GetWindowLongPtr(hHoverCtrl, GWLP_ID);
-                    InvalidateRect(hDlg, NULL, FALSE);
-                }
-            } else {
-                if (g_hAppearanceHoverBtn != NULL) {
-                    g_hAppearanceHoverBtn = NULL;
-                    g_hoverBtnId = 0;
-                    InvalidateRect(hDlg, NULL, FALSE);
-                }
-            }
+            g_pressedId = HIT_NONE;
+            UpdateAppearanceLayeredWindow();
             return 0;
         }
-
-        case WM_LBUTTONDOWN: {
-            POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-            HWND hClickedCtrl = ChildWindowFromPoint(hDlg, pt);
-            if (hClickedCtrl && (GetWindowLong(hClickedCtrl, GWL_STYLE) & BS_OWNERDRAW)) {
-                g_hAppearancePressedBtn = hClickedCtrl;
-                InvalidateRect(hDlg, NULL, FALSE);
-            } else if (hClickedCtrl == NULL || hClickedCtrl == hDlg || GetWindowLong(hClickedCtrl, GWL_STYLE) & SS_LEFT) {
-                g_isAppearanceDlgDragging = TRUE;
-                g_appearanceDlgDragStart = pt;
-                GetWindowRect(hDlg, &g_appearanceDlgRectStart);
-            }
-            return 0;
-        }
-
-        case WM_LBUTTONUP: {
-            if (g_isAppearanceDlgDragging) { g_isAppearanceDlgDragging = FALSE; ReleaseCapture(); }
-            if (g_hAppearancePressedBtn != NULL) { g_hAppearancePressedBtn = NULL; InvalidateRect(hDlg, NULL, FALSE); }
-            return 0;
-        }
-
-        case WM_MOUSELEAVE: {
-            if (g_hAppearanceHoverBtn != NULL) {
-                g_hAppearanceHoverBtn = NULL;
-                g_hoverBtnId = 0;
-                InvalidateRect(hDlg, NULL, FALSE);
-            }
-            return 0;
-        }
-
-        case WM_CHAR:
-        case WM_KEYDOWN: {
-            int key = (message == WM_CHAR) ? wParam : wParam;
-            if (key == 27 || key == VK_ESCAPE) {
-                g_timerState.fontColor = g_originalFontColor;
-                g_timerState.backgroundColor = g_originalBackgroundColor;
-                g_timerState.windowOpacity = g_originalOpacity;
-                g_timerState.transparentBackground = g_originalTransparentBackground;
+        case WM_COMMAND: {
+            int cmd = LOWORD(wParam);
+            if (cmd == 9999) {
+                // 字体菜单关闭，恢复主窗口字体到当前确认状态（g_tempFontName）
+                wcscpy_s(g_timerState.currentFontName, sizeof(g_timerState.currentFontName)/sizeof(wchar_t), g_tempFontName);
                 ClearFontCache();
                 g_timerState.cachedFontValid = FALSE;
                 g_timerState.cachedHFont = NULL;
-                LONG exStyle = GetWindowLong(g_timerState.hMainWnd, GWL_EXSTYLE);
-                SetWindowLong(g_timerState.hMainWnd, GWL_EXSTYLE, exStyle & ~WS_EX_LAYERED);
-                SetWindowLong(g_timerState.hMainWnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED);
                 if (g_timerState.transparentBackground) {
-                    SetWindowRoundedCorners(g_timerState.hMainWnd, 0);
-                    SetWindowShadow(g_timerState.hMainWnd, FALSE);
                     UpdateLayeredWindow_Render();
                 } else {
-                    SetWindowRoundedCorners(g_timerState.hMainWnd, 6);
-                    SetWindowShadow(g_timerState.hMainWnd, TRUE);
-                    SetLayeredWindowAttributes(g_timerState.hMainWnd, 0, g_originalOpacity, LWA_ALPHA);
-                    InvalidateRect(g_timerState.hMainWnd, NULL, TRUE);
+                    InvalidateRect(g_timerState.hMainWnd, NULL, FALSE);
                     UpdateWindow(g_timerState.hMainWnd);
                 }
-                DestroyWindow(hDlg);
-                return (message == WM_CHAR) ? TRUE : 0;
-            } else if (key == 13 || key == VK_RETURN) {
-                g_timerState.fontColor = g_tempFontColor;
-                g_timerState.backgroundColor = g_tempBackgroundColor;
-                g_timerState.windowOpacity = g_tempOpacity;
-                SaveAppearanceConfig();
-                DestroyWindow(hDlg);
-                return (message == WM_CHAR) ? TRUE : 0;
+            } else if (cmd >= 11000 && cmd < 11000 + g_fontMenuCount) {
+                // 悬停预览命令（10000 + commandId，即 10000+1000+i = 11000+i）
+                int idx = cmd - 11000;
+                // 临时切换字体预览（不修改 g_tempFontName，仅实时刷新主窗口显示）
+                wcscpy_s(g_timerState.currentFontName, sizeof(g_timerState.currentFontName)/sizeof(wchar_t), g_fontMenuItems[idx].label);
+                ClearFontCache();
+                g_timerState.cachedFontValid = FALSE;
+                g_timerState.cachedHFont = NULL;
+                // 驱动主窗口立即重绘以呈现预览效果
+                if (g_timerState.transparentBackground) {
+                    UpdateLayeredWindow_Render();
+                } else {
+                    InvalidateRect(g_timerState.hMainWnd, NULL, FALSE);
+                    UpdateWindow(g_timerState.hMainWnd);
+                }
+            } else if (cmd >= 1000 && cmd < 1000 + g_fontMenuCount) {
+                // 正式选择：持久化到 g_tempFontName
+                int idx = cmd - 1000;
+                wcscpy_s(g_tempFontName, 256, g_fontMenuItems[idx].label);
+                ApplyPreview();
+                UpdateAppearanceLayeredWindow();
             }
-            break;
+            return 0;
         }
-
-        case WM_DESTROY:
+        case WM_DESTROY: {
+            KillTimer(hwnd, 2); // 销毁刷新定时器
+            FreeFontMenu();
+            if (g_hbmBuffer) DeleteObject(g_hbmBuffer);
+            if (g_hdcBuffer) DeleteDC(g_hdcBuffer);
             g_hAppearanceDialog = NULL;
             EnableWindow(g_timerState.hMainWnd, TRUE);
             SetForegroundWindow(g_timerState.hMainWnd);
             return 0;
+        }
     }
-    return DefWindowProcW(hDlg, message, wParam, lParam);
+    return DefWindowProc(hwnd, msg, wParam, lParam);
+}
+
+HWND GetAppearanceDialog(void) {
+    return g_hAppearanceDialog;
+}
+
+void ShowAppearanceDialog() {
+    if (g_hAppearanceDialog && IsWindow(g_hAppearanceDialog)) {
+        SetForegroundWindow(g_hAppearanceDialog);
+        return;
+    }
+    
+    WNDCLASSW wc = {0};
+    wc.lpfnWndProc = ModernAppearanceDialogProc;
+    wc.hInstance = GetModuleHandle(NULL);
+    wc.lpszClassName = L"ModernAppearanceDialogClass";
+    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    RegisterClassW(&wc);
+
+    RECT parentRect; GetWindowRect(g_timerState.hMainWnd, &parentRect);
+    int parentWidth = parentRect.right - parentRect.left;
+    int parentHeight = parentRect.bottom - parentRect.top;
+
+    // 默认尝试放在主窗口右侧，保持 20 像素间隔
+    int x = parentRect.right + 20;
+    int y = parentRect.top + (parentHeight - DLG_HEIGHT) / 2;
+
+    // 获取屏幕工作区尺寸（避开任务栏）
+    RECT workArea;
+    SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0);
+
+    // 如果右边超出了屏幕边界，则尝试放在左边
+    if (x + DLG_WIDTH > workArea.right) {
+        x = parentRect.left - DLG_WIDTH - 20;
+    }
+
+    // 最终边界检查，确保不超出工作区范围
+    if (x < workArea.left) x = workArea.left;
+    if (y < workArea.top) y = workArea.top;
+    if (x + DLG_WIDTH > workArea.right) x = workArea.right - DLG_WIDTH;
+    if (y + DLG_HEIGHT > workArea.bottom) y = workArea.bottom - DLG_HEIGHT;
+
+    HWND hwnd = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOPMOST, L"ModernAppearanceDialogClass", L"", WS_POPUP, x, y, DLG_WIDTH, DLG_HEIGHT, g_timerState.hMainWnd, NULL, GetModuleHandle(NULL), NULL);
+    EnableWindow(g_timerState.hMainWnd, FALSE);
+    ShowWindow(hwnd, SW_SHOW);
+}
+
+void CreateAppearanceDialog() {
 }

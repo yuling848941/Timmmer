@@ -26,6 +26,7 @@ gcc -o build\timer_audio_optimized.exe ^
     src\core\timer_core.c ^
     src\ui\timer_ui.c ^
     src\ui\timer_window.c ^
+    src\ui\timer_render_utils.c ^
     src\dialogs\timer_dialog_common.c ^
     src\dialogs\timer_dialog_format.c ^
     src\dialogs\timer_dialog_settime.c ^

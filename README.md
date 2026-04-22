@@ -48,7 +48,7 @@
 ### 安装方法
 
 #### 方法一：直接运行 (推荐)
-1. 下载 `timer_audio_optimized.exe`
+1. 下载 `Timmmer.exe`
 2. 双击运行即可使用
 3. 首次运行会自动创建配置文件
 
@@ -62,7 +62,7 @@ cd timer
 build.bat
 
 # 运行程序
-./build/timer_audio_optimized.exe
+./build/Timmmer.exe
 ```
 
 ## 📖 使用指南

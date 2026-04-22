@@ -20,7 +20,7 @@ if exist res\timer_resource.rc (
 echo.
 
 REM Step 2: Compile timer program
-gcc -o build\timer_audio_optimized.exe ^
+gcc -o build\Timmmer.exe ^
     -Isrc\core -Isrc\ui -Isrc\dialogs -Isrc\audio -Isrc\fonts -Isrc\menu ^
     src\main_audio_optimized.c ^
     src\core\timer_core.c ^
@@ -60,7 +60,7 @@ gcc -o build\timer_audio_optimized.exe ^
 
 if %ERRORLEVEL% EQU 0 (
     echo.
-    echo Compilation successful! Generated file: build\timer_audio_optimized.exe
+    echo Compilation successful! Generated file: build\Timmmer.exe
     echo.
 ) else (
     echo.

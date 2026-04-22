@@ -48,7 +48,7 @@ A feature-rich, visually appealing Windows desktop timer application with suppor
 ### Installation
 
 #### Method 1: Pre-built Binary (Recommended)
-1. Download `timer_audio_optimized.exe`.
+1. Download `Timmmer.exe`.
 2. Double-click to run.
 3. Configuration files will be created automatically on the first run.
 
@@ -62,7 +62,7 @@ cd timer
 build.bat
 
 # Run the program
-./build/timer_audio_optimized.exe
+./build/Timmmer.exe
 ```
 
 ## 📖 User Guide

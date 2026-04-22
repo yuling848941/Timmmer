@@ -48,19 +48,22 @@ static HWND g_currentMenuHwnd = NULL;
 typedef struct {
     const IosMenuItem* items;
     int itemCount;
-    int menuHeight;       
+    int menuHeight;
     int hoverIndex;
-    int prevHoverIndex;  
+    int prevHoverIndex;
     HWND owner;
     HDC hdcBuffer;
     HBITMAP hbmBuffer;
-    void* pBits;          
+    void* pBits;
     int bufWidth;
     int bufHeight;
-    BYTE* cachedFull;      
-    BOOL cacheReady;       
+    BYTE* cachedFull;
+    BOOL cacheReady;
     HFONT hFontLabel;
     HFONT hFontIcon;
+    BOOL isDraggingOwner;
+    POINT dragStartScreen;
+    RECT ownerStartRect;
 } MenuData;
 
 // ===========================================
@@ -225,21 +228,44 @@ static LRESULT CALLBACK MenuProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         case WM_LBUTTONDOWN: {
             POINT pt = {(short)LOWORD(lp), (short)HIWORD(lp)};
-            // 检查点击是否在有效菜单区域内
-            if (pt.x >= 0 && pt.x < MENU_WIDTH && 
-                pt.y >= MENU_PADDING_TOP && pt.y < d->menuHeight - MENU_PADDING_BOTTOM) 
+            if (pt.x >= 0 && pt.x < MENU_WIDTH &&
+                pt.y >= MENU_PADDING_TOP && pt.y < d->menuHeight - MENU_PADDING_BOTTOM)
             {
                 int i = (pt.y - MENU_PADDING_TOP) / MENU_ITEM_HEIGHT;
                 if (i >= 0 && i < d->itemCount) {
                     const IosMenuItem* it = &d->items[i];
                     if (it->commandId != 0) SendMessage(d->owner, WM_COMMAND, MAKEWPARAM(it->commandId, 0), 0);
                 }
+                DestroyWindow(hwnd);
+            } else {
+                GetCursorPos(&d->dragStartScreen);
+                GetWindowRect(d->owner, &d->ownerStartRect);
+                d->isDraggingOwner = TRUE;
+                ShowWindow(hwnd, SW_HIDE);
             }
-            // 无论点击哪里，都销毁菜单（如果在外面就是关闭，在里面就是执行后关闭）
-            DestroyWindow(hwnd);
             return 0;
         }
-        case WM_CAPTURECHANGED: case WM_RBUTTONDOWN: case WM_MBUTTONDOWN: if (g_currentMenuHwnd == hwnd) DestroyWindow(hwnd); return 0;
+        case WM_MOUSEMOVE: {
+            if (d->isDraggingOwner && d->owner && IsWindow(d->owner)) {
+                POINT cur; GetCursorPos(&cur);
+                int dx = cur.x - d->dragStartScreen.x;
+                int dy = cur.y - d->dragStartScreen.y;
+                SetWindowPos(d->owner, NULL,
+                    d->ownerStartRect.left + dx, d->ownerStartRect.top + dy,
+                    0, 0, SWP_NOSIZE | SWP_NOZORDER);
+            }
+            return 0;
+        }
+        case WM_LBUTTONUP: {
+            if (d->isDraggingOwner) {
+                d->isDraggingOwner = FALSE;
+                DestroyWindow(hwnd);
+            }
+            return 0;
+        }
+        case WM_CAPTURECHANGED: case WM_RBUTTONDOWN: case WM_MBUTTONDOWN:
+            if (d && d->isDraggingOwner) d->isDraggingOwner = FALSE;
+            if (g_currentMenuHwnd == hwnd) DestroyWindow(hwnd); return 0;
         case WM_DESTROY: {
             if (d) { KillTimer(hwnd, 1); DeleteObject(d->hbmBuffer); DeleteDC(d->hdcBuffer); if (d->cachedFull) free(d->cachedFull); DeleteObject(d->hFontLabel); DeleteObject(d->hFontIcon); free(d); }
             g_currentMenuHwnd = NULL; return 0;

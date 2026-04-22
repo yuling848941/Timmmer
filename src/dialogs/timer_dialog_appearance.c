@@ -511,13 +511,6 @@ LRESULT CALLBACK AppearanceDialogProc(HWND hDlg, UINT message, WPARAM wParam, LP
                         wchar_t selectedFont[256] = {0};
                         int len = SendMessageW(hFontCombo, CB_GETLBTEXT, selectedIndex, (LPARAM)selectedFont);
                         if (len != CB_ERR && len > 0) {
-                            // DEBUG LOG
-                            FILE* fp = fopen("font_debug.txt", "a");
-                            if (fp) {
-                                fwprintf(fp, L"CBN_SELCHANGE: index=%d, text=%s\n", selectedIndex, selectedFont);
-                                fclose(fp);
-                            }
-                            
                             wcscpy_s(g_timerState.currentFontName, sizeof(g_timerState.currentFontName)/sizeof(wchar_t), selectedFont);
                             wcscpy_s(g_originalFontName, sizeof(g_originalFontName)/sizeof(wchar_t), selectedFont);
                             ClearFontCache();
@@ -545,11 +538,6 @@ LRESULT CALLBACK AppearanceDialogProc(HWND hDlg, UINT message, WPARAM wParam, LP
                         int len = SendMessageW(hFontCombo, CB_GETLBTEXT, curSel, (LPARAM)selFont);
                         if (len != CB_ERR && len > 0) {
                             wcscpy_s(g_originalFontName, sizeof(g_originalFontName)/sizeof(wchar_t), selFont);
-                            FILE* fp = fopen("font_debug.txt", "a");
-                            if (fp) {
-                                fwprintf(fp, L"CBN_DROPDOWN: saved %s\n", selFont);
-                                fclose(fp);
-                            }
                         } else {
                             wcscpy_s(g_originalFontName, sizeof(g_originalFontName)/sizeof(wchar_t), g_timerState.currentFontName);
                         }

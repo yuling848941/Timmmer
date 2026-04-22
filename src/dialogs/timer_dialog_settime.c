@@ -24,11 +24,21 @@ typedef enum {
     HIT_BTN_CONFIRM, HIT_BTN_CANCEL
 } HitTestID;
 
+typedef enum { EDIT_NONE, EDIT_HOURS, EDIT_MINUTES, EDIT_SECONDS } EditField;
+
 static HitTestID g_hoverId = HIT_NONE;
 static HitTestID g_pressedId = HIT_NONE;
 static BOOL g_isDraggingDlg = FALSE;
 static POINT g_dragStartScreen;
 static RECT g_dlgStartRect;
+
+/* Inline editing state */
+static EditField g_editingField = EDIT_NONE;
+static wchar_t g_editBuffer[5];   /* max "99" + null */
+static int g_editCursorPos = 0;
+static BOOL g_cursorVisible = FALSE;
+static UINT_PTR g_cursorTimerId = 1;
+#define CURSOR_BLINK_MS 530
 
 static void DrawTextSDF(HDC hdc, const wchar_t* text, RECT* rc, int format, HFONT hFont, COLORREF color) {
     HFONT hOld = (HFONT)SelectObject(hdc, hFont);
@@ -53,6 +63,9 @@ static void DrawToggleSwitch(BYTE* pixels, int bufW, int bufH, int x, int y, BOO
     int tx = isOn ? (x + swW - ts - 2) : (x + 2);
     FillRoundedRectAA(pixels, bufW, bufH, ts / 2, ts / 2, tx, y + 2, ts, ts, 255, 255, 255, 255);
 }
+
+static void RedrawDialog(void);
+static void RenderDialogUI(void);
 
 static void RedrawDialog(void) {
     HDC hdc = GetDC(NULL);
@@ -113,6 +126,102 @@ static HitTestID HitTest(POINT pt) {
 static BOOL CanToggleHour(BOOL h, BOOL m, BOOL s, BOOL ms) { return m; }
 static BOOL CanToggleMinute(BOOL h, BOOL m, BOOL s, BOOL ms) { return !(ms && !s); }
 static BOOL CanToggleMS(BOOL h, BOOL m, BOOL s, BOOL ms) { return s; }
+
+/* --- Inline editing helpers --- */
+
+static int GetEditFieldMax(EditField f) {
+    switch (f) {
+        case EDIT_HOURS:   return 99;
+        case EDIT_MINUTES: return 59;
+        case EDIT_SECONDS: return 59;
+        default: return 99;
+    }
+}
+
+static int* GetEditFieldPtr(EditField f) {
+    switch (f) {
+        case EDIT_HOURS:   return &g_tempHours;
+        case EDIT_MINUTES: return &g_tempMinutes;
+        case EDIT_SECONDS: return &g_tempSeconds;
+        default: return NULL;
+    }
+}
+
+static void StartEditing(EditField field) {
+    if (field == EDIT_NONE) return;
+    g_editingField = field;
+    g_editBuffer[0] = L'\0';
+    g_editCursorPos = 0;
+    g_cursorVisible = TRUE;
+    SetTimer(g_hSetTimeDialog, g_cursorTimerId, CURSOR_BLINK_MS, NULL);
+    RenderDialogUI();
+    RedrawDialog();
+}
+
+static void StopEditing(BOOL accept) {
+    if (g_editingField == EDIT_NONE) return;
+    KillTimer(g_hSetTimeDialog, g_cursorTimerId);
+    g_cursorTimerId = 0;
+    if (accept && wcslen(g_editBuffer) > 0) {
+        int v = wcstol(g_editBuffer, NULL, 10);
+        int max = GetEditFieldMax(g_editingField);
+        if (v < 0) v = 0;
+        if (v > max) v = max;
+        int* ptr = GetEditFieldPtr(g_editingField);
+        if (ptr) *ptr = v;
+    }
+    g_editingField = EDIT_NONE;
+    g_editBuffer[0] = L'\0';
+    g_editCursorPos = 0;
+    g_cursorVisible = FALSE;
+    RenderDialogUI();
+    RedrawDialog();
+}
+
+static void HandleEditKey(WPARAM vk) {
+    if (g_editingField == EDIT_NONE) return;
+    int len = (int)wcslen(g_editBuffer);
+
+    if (vk >= '0' && vk <= '9') {
+        if (len < 2 && g_editCursorPos < 2) {
+            /* Insert digit at cursor position */
+            for (int i = len; i > g_editCursorPos; i--)
+                g_editBuffer[i] = g_editBuffer[i - 1];
+            g_editBuffer[g_editCursorPos] = (wchar_t)vk;
+            g_editCursorPos++;
+            g_editBuffer[g_editCursorPos] = L'\0';
+            g_cursorVisible = TRUE;
+        }
+    } else if (vk == VK_BACK) {
+        if (g_editCursorPos > 0 && len > 0) {
+            for (int i = g_editCursorPos - 1; i < len - 1; i++)
+                g_editBuffer[i] = g_editBuffer[i + 1];
+            g_editCursorPos--;
+            g_editBuffer[len - 1] = L'\0';
+            g_cursorVisible = TRUE;
+        } else if (len == 0) {
+            /* Empty buffer: stop editing and discard */
+            StopEditing(FALSE);
+            return;
+        }
+    } else if (vk == VK_LEFT) {
+        if (g_editCursorPos > 0) g_editCursorPos--;
+        g_cursorVisible = TRUE;
+    } else if (vk == VK_RIGHT) {
+        if (g_editCursorPos < len) g_editCursorPos++;
+        g_cursorVisible = TRUE;
+    } else if (vk == VK_RETURN) {
+        StopEditing(TRUE);
+        return;
+    } else if (vk == VK_ESCAPE) {
+        StopEditing(FALSE);
+        return;
+    } else {
+        return; /* Ignore other keys */
+    }
+    RenderDialogUI();
+    RedrawDialog();
+}
 
 static void RenderDialogUI(void) {
     memset(g_pBits, 0, DLG_WIDTH * DLG_HEIGHT * 4);
@@ -176,7 +285,35 @@ static void RenderDialogUI(void) {
 
     swprintf(buf, 8, L"%02d", g_tempHours);
     RECT rHDt = rHD;
-    DrawTextSDF(g_hdcBuffer, buf, &rHDt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontNum, RGB(28, 28, 30));
+    BOOL hrsEditing = (g_editingField == EDIT_HOURS);
+    if (hrsEditing) {
+        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rHD.left, rHD.top, rHD.right - rHD.left, rHD.bottom - rHD.top, 230, 240, 255, 255);
+        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rHD.left, rHD.top, rHD.right - rHD.left, rHD.bottom - rHD.top,
+            2, 74, 144, 217, 255);
+        /* Draw edit text */
+        DrawTextSDF(g_hdcBuffer, g_editBuffer, &rHDt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontNum, RGB(28, 28, 30));
+        /* Draw cursor */
+        if (g_cursorVisible) {
+            /* Measure text width to position cursor */
+            SIZE sz;
+            HFONT hOld = (HFONT)SelectObject(g_hdcBuffer, hFontNum);
+            GetTextExtentPoint32W(g_hdcBuffer, g_editBuffer, g_editCursorPos, &sz);
+            SelectObject(g_hdcBuffer, hOld);
+            int cursorX = rHDt.left + (rHDt.right - rHDt.left) / 2 + (sz.cx > 0 ? sz.cx - (rHDt.right - rHDt.left) / 2 : 0);
+            /* Actually, let's center the text and place cursor after it */
+            /* Simpler approach: draw cursor at a fixed position relative to text */
+            int textFullWidth;
+            GetTextExtentPoint32W(g_hdcBuffer, g_editBuffer, (int)wcslen(g_editBuffer), &sz);
+            textFullWidth = sz.cx;
+            int startX = (rHDt.left + rHDt.right - textFullWidth) / 2;
+            GetTextExtentPoint32W(g_hdcBuffer, g_editBuffer, g_editCursorPos, &sz);
+            cursorX = startX + sz.cx;
+            RECT cursorRect = {cursorX, rHDt.top + 3, cursorX + 2, rHDt.bottom - 3};
+            FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 1, 1, cursorRect.left, cursorRect.top, cursorRect.right - cursorRect.left, cursorRect.bottom - cursorRect.top, 74, 144, 217, 255);
+        }
+    } else {
+        DrawTextSDF(g_hdcBuffer, buf, &rHDt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontNum, RGB(28, 28, 30));
+    }
 
     RECT rHMt = rHM;
     DrawTextSDF(g_hdcBuffer, L"-", &rHMt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(60, 60, 67));
@@ -206,7 +343,29 @@ static void RenderDialogUI(void) {
 
     swprintf(buf, 8, L"%02d", g_tempMinutes);
     RECT rMDt = rMD;
-    DrawTextSDF(g_hdcBuffer, buf, &rMDt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontNum, RGB(28, 28, 30));
+    BOOL minEditing = (g_editingField == EDIT_MINUTES);
+    if (minEditing) {
+        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rMD.left, rMD.top, rMD.right - rMD.left, rMD.bottom - rMD.top, 230, 240, 255, 255);
+        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rMD.left, rMD.top, rMD.right - rMD.left, rMD.bottom - rMD.top,
+            2, 74, 144, 217, 255);
+        DrawTextSDF(g_hdcBuffer, g_editBuffer, &rMDt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontNum, RGB(28, 28, 30));
+        if (g_cursorVisible) {
+            SIZE sz;
+            HFONT hOld = (HFONT)SelectObject(g_hdcBuffer, hFontNum);
+            GetTextExtentPoint32W(g_hdcBuffer, g_editBuffer, g_editCursorPos, &sz);
+            int textFullWidth;
+            GetTextExtentPoint32W(g_hdcBuffer, g_editBuffer, (int)wcslen(g_editBuffer), &sz);
+            textFullWidth = sz.cx;
+            int startX = (rMDt.left + rMDt.right - textFullWidth) / 2;
+            GetTextExtentPoint32W(g_hdcBuffer, g_editBuffer, g_editCursorPos, &sz);
+            int cursorX = startX + sz.cx;
+            RECT cursorRect = {cursorX, rMDt.top + 3, cursorX + 2, rMDt.bottom - 3};
+            FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 1, 1, cursorRect.left, cursorRect.top, cursorRect.right - cursorRect.left, cursorRect.bottom - cursorRect.top, 74, 144, 217, 255);
+            SelectObject(g_hdcBuffer, hOld);
+        }
+    } else {
+        DrawTextSDF(g_hdcBuffer, buf, &rMDt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontNum, RGB(28, 28, 30));
+    }
 
     RECT rMMt = rMM;
     DrawTextSDF(g_hdcBuffer, L"-", &rMMt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(60, 60, 67));
@@ -236,7 +395,29 @@ static void RenderDialogUI(void) {
 
     swprintf(buf, 8, L"%02d", g_tempSeconds);
     RECT rSDt = rSD;
-    DrawTextSDF(g_hdcBuffer, buf, &rSDt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontNum, RGB(28, 28, 30));
+    BOOL secEditing = (g_editingField == EDIT_SECONDS);
+    if (secEditing) {
+        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rSD.left, rSD.top, rSD.right - rSD.left, rSD.bottom - rSD.top, 230, 240, 255, 255);
+        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rSD.left, rSD.top, rSD.right - rSD.left, rSD.bottom - rSD.top,
+            2, 74, 144, 217, 255);
+        DrawTextSDF(g_hdcBuffer, g_editBuffer, &rSDt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontNum, RGB(28, 28, 30));
+        if (g_cursorVisible) {
+            SIZE sz;
+            HFONT hOld = (HFONT)SelectObject(g_hdcBuffer, hFontNum);
+            GetTextExtentPoint32W(g_hdcBuffer, g_editBuffer, g_editCursorPos, &sz);
+            int textFullWidth;
+            GetTextExtentPoint32W(g_hdcBuffer, g_editBuffer, (int)wcslen(g_editBuffer), &sz);
+            textFullWidth = sz.cx;
+            int startX = (rSDt.left + rSDt.right - textFullWidth) / 2;
+            GetTextExtentPoint32W(g_hdcBuffer, g_editBuffer, g_editCursorPos, &sz);
+            int cursorX = startX + sz.cx;
+            RECT cursorRect = {cursorX, rSDt.top + 3, cursorX + 2, rSDt.bottom - 3};
+            FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 1, 1, cursorRect.left, cursorRect.top, cursorRect.right - cursorRect.left, cursorRect.bottom - cursorRect.top, 74, 144, 217, 255);
+            SelectObject(g_hdcBuffer, hOld);
+        }
+    } else {
+        DrawTextSDF(g_hdcBuffer, buf, &rSDt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontNum, RGB(28, 28, 30));
+    }
 
     RECT rSMt = rSM;
     DrawTextSDF(g_hdcBuffer, L"-", &rSMt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(60, 60, 67));
@@ -370,6 +551,8 @@ LRESULT CALLBACK SetTimeDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
                 SetWindowPos(hwnd, NULL, g_dlgStartRect.left + dx, g_dlgStartRect.top + dy, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
                 return 0;
             }
+            /* Disable hover tracking while editing */
+            if (g_editingField != EDIT_NONE) return 0;
             HitTestID hit = HitTest(pt);
             if (hit != g_hoverId) {
                 g_hoverId = hit;
@@ -383,6 +566,10 @@ LRESULT CALLBACK SetTimeDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             POINT pt = {(short)LOWORD(lParam), (short)HIWORD(lParam)};
             HitTestID hit = HitTest(pt);
             g_pressedId = hit;
+            /* If currently editing, confirm value before processing new click */
+            if (g_editingField != EDIT_NONE) {
+                StopEditing(TRUE);
+            }
             if (hit == HIT_CARD_BG) {
                 g_isDraggingDlg = TRUE;
                 GetCursorPos(&g_dragStartScreen);
@@ -420,6 +607,16 @@ LRESULT CALLBACK SetTimeDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
                         break;
                     case HIT_SEC_PLUS:
                         if (g_tempSeconds < 59) g_tempSeconds++;
+                        break;
+
+                    case HIT_HRS_DISPLAY:
+                        StartEditing(EDIT_HOURS);
+                        break;
+                    case HIT_MIN_DISPLAY:
+                        StartEditing(EDIT_MINUTES);
+                        break;
+                    case HIT_SEC_DISPLAY:
+                        StartEditing(EDIT_SECONDS);
                         break;
 
                     case HIT_TOGGLE_HOUR:
@@ -460,6 +657,10 @@ LRESULT CALLBACK SetTimeDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
         }
 
         case WM_KEYDOWN: {
+            if (g_editingField != EDIT_NONE) {
+                HandleEditKey(wParam);
+                return 0;
+            }
             switch (wParam) {
                 case VK_ESCAPE:
                     DestroyWindow(hwnd);
@@ -472,7 +673,25 @@ LRESULT CALLBACK SetTimeDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             break;
         }
 
+        case WM_TIMER: {
+            if (wParam == g_cursorTimerId && g_editingField != EDIT_NONE) {
+                g_cursorVisible = !g_cursorVisible;
+                RenderDialogUI();
+                RedrawDialog();
+                return 0;
+            }
+            break;
+        }
+
+        case WM_KILLFOCUS: {
+            if (g_editingField != EDIT_NONE) {
+                StopEditing(TRUE);
+            }
+            break;
+        }
+
         case WM_DESTROY: {
+            if (g_cursorTimerId) KillTimer(hwnd, g_cursorTimerId);
             if (g_hbmBuffer) DeleteObject(g_hbmBuffer);
             if (g_hdcBuffer) DeleteDC(g_hdcBuffer);
             g_hSetTimeDialog = NULL;

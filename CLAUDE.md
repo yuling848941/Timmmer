@@ -57,3 +57,4 @@ Sample config: `timer_config.ini` in project root
 - **UTF-8 encoding**: All source files and output should use UTF-8
 - **Chinese language**: Primary documentation and commit messages are in Chinese
 - **Custom menu implementation**: The right-click menu in `src/menu/ios_menu.c` and `src/menu/context_menu.c` is a fully custom-drawn implementation, not using Windows native menu APIs. This affects how menu dismissal, focus, and mouse interaction behave compared to native Windows menus.
+中文回答我的问题

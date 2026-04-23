@@ -263,45 +263,52 @@ static void RenderDialogUI(void) {
     int spinBtnR = 4;
 
     // --- Hours spinner ---
+    BOOL hrsEnabled = g_tempShowHours;
     BOOL hM = (g_hoverId == HIT_HRS_MINUS), hMP = (g_pressedId == HIT_HRS_MINUS);
-    COLORREF hMC = hMP ? RGB(200, 200, 205) : (hM ? RGB(225, 225, 230) : RGB(245, 245, 247));
+    COLORREF hMC = hrsEnabled ? (hMP ? RGB(200, 200, 205) : (hM ? RGB(225, 225, 230) : RGB(245, 245, 247))) : RGB(248, 248, 250);
     RECT rHM = {S + 30, S + 107, S + 56, S + 133};
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rHM.left, rHM.top, rHM.right - rHM.left, rHM.bottom - rHM.top,
         GetRValue(hMC), GetGValue(hMC), GetBValue(hMC), 255);
-    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rHM.left, rHM.top, rHM.right - rHM.left, rHM.bottom - rHM.top, 1, 210, 210, 215, 255);
+    if (hrsEnabled) {
+        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rHM.left, rHM.top, rHM.right - rHM.left, rHM.bottom - rHM.top, 1, 210, 210, 215, 255);
+    }
 
     BOOL hD = (g_hoverId == HIT_HRS_DISPLAY), hDP = (g_pressedId == HIT_HRS_DISPLAY);
     RECT rHD = {S + 57, S + 108, S + 97, S + 133};
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rHD.left, rHD.top, rHD.right - rHD.left, rHD.bottom - rHD.top, 255, 255, 255, 255);
-    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rHD.left, rHD.top, rHD.right - rHD.left, rHD.bottom - rHD.top,
-        1, hD ? 0 : 80, hD ? 120 : 100, hD ? 190 : 120, 255);
+    if (!hrsEnabled) {
+        /* Gray overlay for disabled display */
+        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rHD.left, rHD.top, rHD.right - rHD.left, rHD.bottom - rHD.top, 245, 245, 247, 200);
+    } else {
+        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rHD.left, rHD.top, rHD.right - rHD.left, rHD.bottom - rHD.top,
+            1, hD ? 0 : 80, hD ? 120 : 100, hD ? 190 : 120, 255);
+    }
 
     BOOL hP = (g_hoverId == HIT_HRS_PLUS), hPP = (g_pressedId == HIT_HRS_PLUS);
-    COLORREF hPC = hPP ? RGB(200, 200, 205) : (hP ? RGB(225, 225, 230) : RGB(245, 245, 247));
+    COLORREF hPC = hrsEnabled ? (hPP ? RGB(200, 200, 205) : (hP ? RGB(225, 225, 230) : RGB(245, 245, 247))) : RGB(248, 248, 250);
     RECT rHP = {S + 98, S + 107, S + 124, S + 133};
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rHP.left, rHP.top, rHP.right - rHP.left, rHP.bottom - rHP.top,
         GetRValue(hPC), GetGValue(hPC), GetBValue(hPC), 255);
-    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rHP.left, rHP.top, rHP.right - rHP.left, rHP.bottom - rHP.top, 1, 210, 210, 215, 255);
+    if (hrsEnabled) {
+        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rHP.left, rHP.top, rHP.right - rHP.left, rHP.bottom - rHP.top, 1, 210, 210, 215, 255);
+    }
 
     swprintf(buf, 8, L"%02d", g_tempHours);
     RECT rHDt = rHD;
+    COLORREF hrsTextColor = hrsEnabled ? RGB(28, 28, 30) : RGB(180, 180, 185);
+    COLORREF hrsBtnTextColor = hrsEnabled ? RGB(60, 60, 67) : RGB(200, 200, 205);
     BOOL hrsEditing = (g_editingField == EDIT_HOURS);
     if (hrsEditing) {
         FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rHD.left, rHD.top, rHD.right - rHD.left, rHD.bottom - rHD.top, 230, 240, 255, 255);
         DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rHD.left, rHD.top, rHD.right - rHD.left, rHD.bottom - rHD.top,
             2, 74, 144, 217, 255);
-        /* Draw edit text */
         DrawTextSDF(g_hdcBuffer, g_editBuffer, &rHDt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontNum, RGB(28, 28, 30));
-        /* Draw cursor */
         if (g_cursorVisible) {
-            /* Measure text width to position cursor */
             SIZE sz;
             HFONT hOld = (HFONT)SelectObject(g_hdcBuffer, hFontNum);
             GetTextExtentPoint32W(g_hdcBuffer, g_editBuffer, g_editCursorPos, &sz);
             SelectObject(g_hdcBuffer, hOld);
             int cursorX = rHDt.left + (rHDt.right - rHDt.left) / 2 + (sz.cx > 0 ? sz.cx - (rHDt.right - rHDt.left) / 2 : 0);
-            /* Actually, let's center the text and place cursor after it */
-            /* Simpler approach: draw cursor at a fixed position relative to text */
             int textFullWidth;
             GetTextExtentPoint32W(g_hdcBuffer, g_editBuffer, (int)wcslen(g_editBuffer), &sz);
             textFullWidth = sz.cx;
@@ -312,37 +319,48 @@ static void RenderDialogUI(void) {
             FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 1, 1, cursorRect.left, cursorRect.top, cursorRect.right - cursorRect.left, cursorRect.bottom - cursorRect.top, 74, 144, 217, 255);
         }
     } else {
-        DrawTextSDF(g_hdcBuffer, buf, &rHDt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontNum, RGB(28, 28, 30));
+        DrawTextSDF(g_hdcBuffer, buf, &rHDt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontNum, hrsTextColor);
     }
 
     RECT rHMt = rHM;
-    DrawTextSDF(g_hdcBuffer, L"-", &rHMt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(60, 60, 67));
+    DrawTextSDF(g_hdcBuffer, L"-", &rHMt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontLabel, hrsBtnTextColor);
     RECT rHPt = rHP;
-    DrawTextSDF(g_hdcBuffer, L"+", &rHPt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(60, 60, 67));
+    DrawTextSDF(g_hdcBuffer, L"+", &rHPt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontLabel, hrsBtnTextColor);
 
     // --- Minutes spinner ---
+    BOOL minEnabled = g_tempShowMinutes;
     BOOL mM = (g_hoverId == HIT_MIN_MINUS), mMP = (g_pressedId == HIT_MIN_MINUS);
-    COLORREF mMC = mMP ? RGB(200, 200, 205) : (mM ? RGB(225, 225, 230) : RGB(245, 245, 247));
+    COLORREF mMC = minEnabled ? (mMP ? RGB(200, 200, 205) : (mM ? RGB(225, 225, 230) : RGB(245, 245, 247))) : RGB(248, 248, 250);
     RECT rMM = {S + 145, S + 107, S + 171, S + 133};
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rMM.left, rMM.top, rMM.right - rMM.left, rMM.bottom - rMM.top,
         GetRValue(mMC), GetGValue(mMC), GetBValue(mMC), 255);
-    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rMM.left, rMM.top, rMM.right - rMM.left, rMM.bottom - rMM.top, 1, 210, 210, 215, 255);
+    if (minEnabled) {
+        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rMM.left, rMM.top, rMM.right - rMM.left, rMM.bottom - rMM.top, 1, 210, 210, 215, 255);
+    }
 
     BOOL mD = (g_hoverId == HIT_MIN_DISPLAY), mDP = (g_pressedId == HIT_MIN_DISPLAY);
     RECT rMD = {S + 172, S + 108, S + 212, S + 133};
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rMD.left, rMD.top, rMD.right - rMD.left, rMD.bottom - rMD.top, 255, 255, 255, 255);
-    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rMD.left, rMD.top, rMD.right - rMD.left, rMD.bottom - rMD.top,
-        1, mD ? 0 : 80, mD ? 120 : 100, mD ? 190 : 120, 255);
+    if (!minEnabled) {
+        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rMD.left, rMD.top, rMD.right - rMD.left, rMD.bottom - rMD.top, 245, 245, 247, 200);
+    } else {
+        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rMD.left, rMD.top, rMD.right - rMD.left, rMD.bottom - rMD.top,
+            1, mD ? 0 : 80, mD ? 120 : 100, mD ? 190 : 120, 255);
+    }
 
     BOOL mP = (g_hoverId == HIT_MIN_PLUS), mPP = (g_pressedId == HIT_MIN_PLUS);
-    COLORREF mPC = mPP ? RGB(200, 200, 205) : (mP ? RGB(225, 225, 230) : RGB(245, 245, 247));
+    COLORREF mPC = minEnabled ? (mPP ? RGB(200, 200, 205) : (mP ? RGB(225, 225, 230) : RGB(245, 245, 247))) : RGB(248, 248, 250);
     RECT rMP = {S + 213, S + 107, S + 239, S + 133};
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rMP.left, rMP.top, rMP.right - rMP.left, rMP.bottom - rMP.top,
         GetRValue(mPC), GetGValue(mPC), GetBValue(mPC), 255);
-    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rMP.left, rMP.top, rMP.right - rMP.left, rMP.bottom - rMP.top, 1, 210, 210, 215, 255);
+    if (minEnabled) {
+        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rMP.left, rMP.top, rMP.right - rMP.left, rMP.bottom - rMP.top, 1, 210, 210, 215, 255);
+    }
 
     swprintf(buf, 8, L"%02d", g_tempMinutes);
     RECT rMDt = rMD;
+    COLORREF minTextColor = minEnabled ? RGB(28, 28, 30) : RGB(180, 180, 185);
+    COLORREF minBtnTextColor = minEnabled ? RGB(60, 60, 67) : RGB(200, 200, 205);
     BOOL minEditing = (g_editingField == EDIT_MINUTES);
     if (minEditing) {
         FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rMD.left, rMD.top, rMD.right - rMD.left, rMD.bottom - rMD.top, 230, 240, 255, 255);
@@ -364,37 +382,48 @@ static void RenderDialogUI(void) {
             SelectObject(g_hdcBuffer, hOld);
         }
     } else {
-        DrawTextSDF(g_hdcBuffer, buf, &rMDt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontNum, RGB(28, 28, 30));
+        DrawTextSDF(g_hdcBuffer, buf, &rMDt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontNum, minTextColor);
     }
 
     RECT rMMt = rMM;
-    DrawTextSDF(g_hdcBuffer, L"-", &rMMt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(60, 60, 67));
+    DrawTextSDF(g_hdcBuffer, L"-", &rMMt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontLabel, minBtnTextColor);
     RECT rMPt = rMP;
-    DrawTextSDF(g_hdcBuffer, L"+", &rMPt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(60, 60, 67));
+    DrawTextSDF(g_hdcBuffer, L"+", &rMPt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontLabel, minBtnTextColor);
 
     // --- Seconds spinner ---
+    BOOL secEnabled = g_tempShowSeconds;
     BOOL sM = (g_hoverId == HIT_SEC_MINUS), sMP = (g_pressedId == HIT_SEC_MINUS);
-    COLORREF sMC = sMP ? RGB(200, 200, 205) : (sM ? RGB(225, 225, 230) : RGB(245, 245, 247));
+    COLORREF sMC = secEnabled ? (sMP ? RGB(200, 200, 205) : (sM ? RGB(225, 225, 230) : RGB(245, 245, 247))) : RGB(248, 248, 250);
     RECT rSM = {S + 260, S + 107, S + 286, S + 133};
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rSM.left, rSM.top, rSM.right - rSM.left, rSM.bottom - rSM.top,
         GetRValue(sMC), GetGValue(sMC), GetBValue(sMC), 255);
-    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rSM.left, rSM.top, rSM.right - rSM.left, rSM.bottom - rSM.top, 1, 210, 210, 215, 255);
+    if (secEnabled) {
+        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rSM.left, rSM.top, rSM.right - rSM.left, rSM.bottom - rSM.top, 1, 210, 210, 215, 255);
+    }
 
     BOOL sD = (g_hoverId == HIT_SEC_DISPLAY), sDP = (g_pressedId == HIT_SEC_DISPLAY);
     RECT rSD = {S + 287, S + 108, S + 327, S + 133};
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rSD.left, rSD.top, rSD.right - rSD.left, rSD.bottom - rSD.top, 255, 255, 255, 255);
-    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rSD.left, rSD.top, rSD.right - rSD.left, rSD.bottom - rSD.top,
-        1, sD ? 0 : 80, sD ? 120 : 100, sD ? 190 : 120, 255);
+    if (!secEnabled) {
+        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rSD.left, rSD.top, rSD.right - rSD.left, rSD.bottom - rSD.top, 245, 245, 247, 200);
+    } else {
+        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rSD.left, rSD.top, rSD.right - rSD.left, rSD.bottom - rSD.top,
+            1, sD ? 0 : 80, sD ? 120 : 100, sD ? 190 : 120, 255);
+    }
 
     BOOL sP = (g_hoverId == HIT_SEC_PLUS), sPP = (g_pressedId == HIT_SEC_PLUS);
-    COLORREF sPC = sPP ? RGB(200, 200, 205) : (sP ? RGB(225, 225, 230) : RGB(245, 245, 247));
+    COLORREF sPC = secEnabled ? (sPP ? RGB(200, 200, 205) : (sP ? RGB(225, 225, 230) : RGB(245, 245, 247))) : RGB(248, 248, 250);
     RECT rSP = {S + 328, S + 107, S + 354, S + 133};
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rSP.left, rSP.top, rSP.right - rSP.left, rSP.bottom - rSP.top,
         GetRValue(sPC), GetGValue(sPC), GetBValue(sPC), 255);
-    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rSP.left, rSP.top, rSP.right - rSP.left, rSP.bottom - rSP.top, 1, 210, 210, 215, 255);
+    if (secEnabled) {
+        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rSP.left, rSP.top, rSP.right - rSP.left, rSP.bottom - rSP.top, 1, 210, 210, 215, 255);
+    }
 
     swprintf(buf, 8, L"%02d", g_tempSeconds);
     RECT rSDt = rSD;
+    COLORREF secTextColor = secEnabled ? RGB(28, 28, 30) : RGB(180, 180, 185);
+    COLORREF secBtnTextColor = secEnabled ? RGB(60, 60, 67) : RGB(200, 200, 205);
     BOOL secEditing = (g_editingField == EDIT_SECONDS);
     if (secEditing) {
         FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rSD.left, rSD.top, rSD.right - rSD.left, rSD.bottom - rSD.top, 230, 240, 255, 255);
@@ -416,13 +445,13 @@ static void RenderDialogUI(void) {
             SelectObject(g_hdcBuffer, hOld);
         }
     } else {
-        DrawTextSDF(g_hdcBuffer, buf, &rSDt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontNum, RGB(28, 28, 30));
+        DrawTextSDF(g_hdcBuffer, buf, &rSDt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontNum, secTextColor);
     }
 
     RECT rSMt = rSM;
-    DrawTextSDF(g_hdcBuffer, L"-", &rSMt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(60, 60, 67));
+    DrawTextSDF(g_hdcBuffer, L"-", &rSMt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontLabel, secBtnTextColor);
     RECT rSPt = rSP;
-    DrawTextSDF(g_hdcBuffer, L"+", &rSPt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(60, 60, 67));
+    DrawTextSDF(g_hdcBuffer, L"+", &rSPt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontLabel, secBtnTextColor);
 
     // Separator
     RECT rSep = {cardX + 20, cardY + 142, cardX + cardW - 20, cardY + 144};
@@ -591,45 +620,54 @@ LRESULT CALLBACK SetTimeDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
 
                 switch (hit) {
                     case HIT_HRS_MINUS:
-                        if (g_tempHours > 0) g_tempHours--;
+                        if (g_tempShowHours && g_tempHours > 0) g_tempHours--;
                         break;
                     case HIT_HRS_PLUS:
-                        if (g_tempHours < 99) g_tempHours++;
+                        if (g_tempShowHours && g_tempHours < 99) g_tempHours++;
                         break;
                     case HIT_MIN_MINUS:
-                        if (g_tempMinutes > 0) g_tempMinutes--;
+                        if (g_tempShowMinutes && g_tempMinutes > 0) g_tempMinutes--;
                         break;
                     case HIT_MIN_PLUS:
-                        if (g_tempMinutes < 59) g_tempMinutes++;
+                        if (g_tempShowMinutes && g_tempMinutes < 59) g_tempMinutes++;
                         break;
                     case HIT_SEC_MINUS:
-                        if (g_tempSeconds > 0) g_tempSeconds--;
+                        if (g_tempShowSeconds && g_tempSeconds > 0) g_tempSeconds--;
                         break;
                     case HIT_SEC_PLUS:
-                        if (g_tempSeconds < 59) g_tempSeconds++;
+                        if (g_tempShowSeconds && g_tempSeconds < 59) g_tempSeconds++;
                         break;
 
                     case HIT_HRS_DISPLAY:
-                        StartEditing(EDIT_HOURS);
+                        if (g_tempShowHours) StartEditing(EDIT_HOURS);
                         break;
                     case HIT_MIN_DISPLAY:
-                        StartEditing(EDIT_MINUTES);
+                        if (g_tempShowMinutes) StartEditing(EDIT_MINUTES);
                         break;
                     case HIT_SEC_DISPLAY:
-                        StartEditing(EDIT_SECONDS);
+                        if (g_tempShowSeconds) StartEditing(EDIT_SECONDS);
                         break;
 
                     case HIT_TOGGLE_HOUR:
-                        if (CanToggleHour(!h, m, s, ms)) g_tempShowHours = !h;
+                        if (CanToggleHour(!h, m, s, ms)) {
+                            g_tempShowHours = !h;
+                            if (!g_tempShowHours) g_tempHours = 0;
+                        }
                         break;
                     case HIT_TOGGLE_MINUTE:
-                        if (CanToggleMinute(h, !m, s, ms)) g_tempShowMinutes = !m;
+                        if (CanToggleMinute(h, !m, s, ms)) {
+                            g_tempShowMinutes = !m;
+                            if (!g_tempShowMinutes) g_tempMinutes = 0;
+                        }
                         break;
                     case HIT_TOGGLE_SECOND:
                         g_tempShowSeconds = !s;
+                        if (!g_tempShowSeconds) g_tempSeconds = 0;
                         break;
                     case HIT_TOGGLE_MILLISECOND:
-                        if (CanToggleMS(h, m, s, !ms)) g_tempShowMilliseconds = !ms;
+                        if (CanToggleMS(h, m, s, !ms)) {
+                            g_tempShowMilliseconds = !ms;
+                        }
                         break;
 
                     case HIT_BTN_CONFIRM:

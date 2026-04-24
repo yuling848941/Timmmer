@@ -22,7 +22,7 @@ BOOL InitializeTrayIcon(HWND hwnd) {
         NULL,
         L"timmmer-modern.ico",
         IMAGE_ICON,
-        16, 16,  // 系统托盘图标大小
+        64, 64,  // 系统托盘图标大小（64px 适配高分屏）
         LR_LOADFROMFILE | LR_DEFAULTSIZE
     );
 

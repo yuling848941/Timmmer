@@ -121,7 +121,10 @@ void ShowAboutDialog(void) {
         L"在任何情况下，作者或版权持有人均不对任何索赔、\r\n"
         L"损害或其他责任负责。\r\n"
         L"\r\n"
-        L"感谢使用Timer计时器应用程序！"
+        L"感谢使用Timer计时器应用程序！\r\n"
+        L"\r\n"
+        L"项目主页 / GitHub Repo:\r\n"
+        L"https://github.com/yuling848941/Timmmer"
     );
     
     // 设置文本内容
@@ -135,7 +138,12 @@ void ShowAboutDialog(void) {
     // 确定按钮
     CreateWindowW(L"BUTTON", texts->ok,
         WS_VISIBLE | WS_CHILD | BS_OWNERDRAW,
-        210, 340, 80, 30, hDlg, (HMENU)ID_ABOUT_BTN_OK, GetModuleHandle(NULL), NULL);
+        160, 340, 80, 30, hDlg, (HMENU)ID_ABOUT_BTN_OK, GetModuleHandle(NULL), NULL);
+
+    // GitHub 按钮
+    CreateWindowW(L"BUTTON", L"GitHub",
+        WS_VISIBLE | WS_CHILD | BS_OWNERDRAW,
+        250, 340, 80, 30, hDlg, (HMENU)1002, GetModuleHandle(NULL), NULL);
 }
 
 LRESULT CALLBACK AboutDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -156,6 +164,10 @@ LRESULT CALLBACK AboutDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM 
                         InvalidateRect(g_timerState.hMainWnd, NULL, TRUE);
                         DestroyWindow(hDlg);
                     }
+                    return 0;
+                }
+                case 1002: { // GitHub 按钮
+                    ShellExecuteW(NULL, L"open", L"https://github.com/yuling848941/Timmmer", NULL, NULL, SW_SHOWNORMAL);
                     return 0;
                 }
             }
@@ -238,10 +250,10 @@ LRESULT CALLBACK AboutDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM 
         case WM_DRAWITEM: {
             LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
 
-            if (dis->CtlID == ID_ABOUT_BTN_OK || dis->CtlID == ID_ABOUT_BTN_FACTORY_RESET) {
+            if (dis->CtlID == ID_ABOUT_BTN_OK || dis->CtlID == ID_ABOUT_BTN_FACTORY_RESET || dis->CtlID == 1002) {
                 BOOL isHover = (g_hAboutHoverBtn == dis->hwndItem);
                 BOOL isPressed = (g_hAboutPressedBtn == dis->hwndItem);
-                BOOL isOK = (dis->CtlID == ID_ABOUT_BTN_OK);
+                BOOL isOK = (dis->CtlID == ID_ABOUT_BTN_OK || dis->CtlID == 1002);
 
                 // 确定按钮：蓝色背景，悬停时更深，按下时最深；其他按钮：浅灰背景，悬停时中灰，按下时更深
                 COLORREF fillColor = isOK ? UI_PRIMARY_COLOR : UI_LIGHT_BG_SECONDARY;

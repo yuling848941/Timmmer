@@ -24,6 +24,7 @@
 #define ID_OVERTIME_COUNT   1009
 #define ID_AUDIO_SETTINGS   1010
 #define ID_ABOUT           1011
+#define ID_GITHUB_REPO     1012
 
 // 系统托盘相关定义
 #define WM_TRAYICON         (WM_USER + 1)

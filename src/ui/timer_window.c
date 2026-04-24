@@ -407,6 +407,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 case ID_ABOUT:
                     ShowAboutDialog();
                     break;
+                
+                case ID_GITHUB_REPO:
+                    ShellExecuteW(NULL, L"open", L"https://github.com/yuling848941/Timmmer", NULL, NULL, SW_SHOWNORMAL);
+                    break;
 
                 case ID_EDIT_PRESETS:
                     ShowPresetEditDialog();
@@ -642,7 +646,10 @@ static void ShowIosContextMenu(HWND owner, int x, int y) {
         IOS_MENU_ITEM_NORMAL, texts->language, NULL, L"\uE774", FALSE, FALSE, ID_LANGUAGE
     };
     g_iosMenuItems[g_iosMenuItemCount++] = (IosMenuItem){
-        IOS_MENU_ITEM_NORMAL, texts->about, NULL, L"\uE946", TRUE, FALSE, ID_ABOUT
+        IOS_MENU_ITEM_NORMAL, texts->about, NULL, L"\uE946", FALSE, FALSE, ID_ABOUT
+    };
+    g_iosMenuItems[g_iosMenuItemCount++] = (IosMenuItem){
+        IOS_MENU_ITEM_NORMAL, L"GitHub", NULL, L"\uE902", TRUE, FALSE, ID_GITHUB_REPO
     };
     g_iosMenuItems[g_iosMenuItemCount++] = (IosMenuItem){
         IOS_MENU_ITEM_NORMAL, texts->exit, NULL, L"\uE711", FALSE, FALSE, ID_EXIT

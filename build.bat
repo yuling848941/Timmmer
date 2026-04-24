@@ -74,4 +74,3 @@ if %ERRORLEVEL% EQU 0 (
 )
 
 echo Compilation completed.
-pause

@@ -64,7 +64,7 @@ void ShowAboutDialog(void) {
     wchar_t aboutText[2048];
     swprintf(aboutText, 2048,
         L"Timer 计时器应用程序\r\n"
-        L"Version 1.0.0\r\n"
+        L"Version 1.2.0\r\n"
         L"\r\n"
         L"作者 / Author: 面包哥\r\n"
         L"年份 / Year: 2025年\r\n"

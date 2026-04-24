@@ -1,7 +1,7 @@
 Timer Application License
 ==========================
 
-Copyright (C) 2025 [BreadGe]
+Copyright (C) 2025 面包哥 (BreadGe)
 All rights reserved.
 
 This software and its source code are proprietary and confidential.

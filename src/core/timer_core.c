@@ -19,7 +19,7 @@ void InitializeGlobalState(void) {
     g_timerState.showSeconds = TRUE;
     g_timerState.currentLanguage = 0;
     g_timerState.fontColor = RGB(255, 255, 255);
-    g_timerState.backgroundColor = RGB(0, 0, 0);
+    g_timerState.backgroundColor = RGB(192, 192, 192);
     g_timerState.windowOpacity = 255;
     g_timerState.useChineseAudio = TRUE;
     g_timerState.originalFontColor = g_timerState.fontColor;

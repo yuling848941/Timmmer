@@ -313,15 +313,15 @@ void LoadAppearanceConfig(void) {
     if (fileAttr == INVALID_FILE_ATTRIBUTES) {
         // 文件不存在，使用默认设置
         g_timerState.fontColor = RGB(255, 255, 255);  // 白色字体
-        g_timerState.backgroundColor = RGB(0, 0, 0);  // 黑色背景
+        g_timerState.backgroundColor = RGB(192, 192, 192);  // 灰色背景
         g_timerState.windowOpacity = 255;  // 完全不透明
-        wcscpy_s(g_timerState.currentFontName, 64, L"");  // 默认无字体选择
+        wcscpy_s(g_timerState.currentFontName, 64, L"Wallpoet");  // 默认字体
         
         // 超时正计时功能默认设置
         g_timerState.enableOvertimeCount = FALSE;
         g_timerState.isInOvertimeMode = FALSE;
         g_timerState.originalFontColor = RGB(255, 255, 255);
-        g_timerState.originalBackgroundColor = RGB(0, 0, 0);
+        g_timerState.originalBackgroundColor = RGB(192, 192, 192);
         
         // 音频设置默认值
         g_timerState.enableAudioAlert = FALSE;  // 默认关闭音频提示
@@ -339,7 +339,7 @@ void LoadAppearanceConfig(void) {
     g_timerState.fontColor = (COLORREF)fontColor;
     
     // 加载背景颜色
-    DWORD backgroundColor = GetPrivateProfileIntW(L"Appearance", L"BackgroundColor", RGB(0, 0, 0), configPath);
+    DWORD backgroundColor = GetPrivateProfileIntW(L"Appearance", L"BackgroundColor", RGB(192, 192, 192), configPath);
     g_timerState.backgroundColor = (COLORREF)backgroundColor;
     
     // 加载透明度
@@ -358,7 +358,7 @@ void LoadAppearanceConfig(void) {
     g_timerState.originalFontColor = (COLORREF)originalFontColor;
     
     // 加载原始背景颜色
-    DWORD originalBackgroundColor = GetPrivateProfileIntW(L"Timer", L"OriginalBackgroundColor", RGB(0, 0, 0), configPath);
+    DWORD originalBackgroundColor = GetPrivateProfileIntW(L"Timer", L"OriginalBackgroundColor", RGB(192, 192, 192), configPath);
     g_timerState.originalBackgroundColor = (COLORREF)originalBackgroundColor;
     
     // 确保不在超时模式（程序启动时重置状态）
@@ -596,23 +596,23 @@ void PerformFactoryReset(void) {
     
     // 重置所有设置到默认值
     // 格式设置
-    g_timerState.showHours = TRUE;
+    g_timerState.showHours = FALSE;
     g_timerState.showMinutes = TRUE;
     g_timerState.showSeconds = TRUE;
     g_timerState.showMilliseconds = FALSE;
     g_timerState.currentLanguage = TIMER_LANG_CHINESE;
-    
+
     // 外观设置
     g_timerState.fontColor = RGB(255, 255, 255);  // 白色字体
-    g_timerState.backgroundColor = RGB(0, 0, 0);  // 黑色背景
+    g_timerState.backgroundColor = RGB(192, 192, 192);  // 灰色背景
     g_timerState.windowOpacity = 255;  // 完全不透明
-    wcscpy_s(g_timerState.currentFontName, 64, L"");  // 默认无字体选择
-    
+    wcscpy_s(g_timerState.currentFontName, 64, L"Wallpoet");  // 默认字体
+
     // 超时正计时功能
     g_timerState.enableOvertimeCount = FALSE;
     g_timerState.isInOvertimeMode = FALSE;
     g_timerState.originalFontColor = RGB(255, 255, 255);
-    g_timerState.originalBackgroundColor = RGB(0, 0, 0);
+    g_timerState.originalBackgroundColor = RGB(192, 192, 192);
     
     // 音频设置
     g_timerState.enableAudioAlert = FALSE;

@@ -448,7 +448,7 @@ LRESULT CALLBACK ModernAppearanceDialogProc(HWND hwnd, UINT msg, WPARAM wParam, 
                     }
                 } else if (hit == HIT_RESET) {
                     g_tempFontColor = RGB(255,255,255);
-                    g_tempBackgroundColor = RGB(0,0,0);
+                    g_tempBackgroundColor = RGB(192,192,192);
                     g_tempOpacity = 255;
                     ApplyPreview();
                     UpdateAppearanceLayeredWindow();

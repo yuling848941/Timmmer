@@ -124,59 +124,22 @@ typedef enum {
 // 现代 UI 颜色系统（用于对话框样式优化）
 // ===========================================
 
-// 浅色主题颜色
-#define UI_LIGHT_BG_PRIMARY     RGB(255, 255, 255)    // 主背景：纯白
-#define UI_LIGHT_BG_SECONDARY   RGB(245, 245, 247)    // 次级背景：浅灰
-#define UI_LIGHT_SURFACE        RGB(255, 255, 255)    // 表面：纯白
-#define UI_LIGHT_BORDER         RGB(220, 220, 225)    // 边框：淡灰
-#define UI_LIGHT_BORDER_FOCUS   RGB(100, 149, 237)    // 聚焦边框：矢车菊蓝
-#define UI_LIGHT_TEXT_PRIMARY   RGB(28, 28, 30)       // 主文本：近黑
-#define UI_LIGHT_TEXT_SECONDARY RGB(92, 92, 97)       // 次要文本：深灰
-#define UI_LIGHT_TEXT_DISABLED  RGB(174, 174, 178)    // 禁用文本：浅灰
-#define UI_LIGHT_BUTTON_HOVER   RGB(235, 235, 240)    // 按钮悬停：浅灰
-#define UI_LIGHT_BUTTON_PRESSED RGB(210, 210, 215)    // 按钮按下：中灰
+// 浅色主题颜色（对齐 Windows 11 Settings / Mica 规格）
+#define UI_LIGHT_BG_PRIMARY     RGB(243, 243, 243)    // 面板底色（Win11 Settings 背景）
+#define UI_LIGHT_BG_SECONDARY   RGB(249, 249, 249)    // 次级背景/控件底
+#define UI_LIGHT_SURFACE        RGB(255, 255, 255)    // 卡片/输入框底
+#define UI_LIGHT_BORDER         RGB(221, 221, 221)    // Hairline 边框
+#define UI_LIGHT_BORDER_FOCUS   RGB(0, 95, 184)       // 聚焦边框：Win11 主色
+#define UI_LIGHT_TEXT_PRIMARY   RGB(32, 32, 32)       // 主文本：接近 CaptionText
+#define UI_LIGHT_TEXT_SECONDARY RGB(102, 102, 102)    // 次要文本
+#define UI_LIGHT_TEXT_DISABLED  RGB(168, 168, 168)    // 禁用文本
+#define UI_LIGHT_BUTTON_HOVER   RGB(229, 229, 229)    // 按钮悬停
+#define UI_LIGHT_BUTTON_PRESSED RGB(204, 204, 204)    // 按钮按下
 
-// 品牌色（主色调）
-#define UI_PRIMARY_COLOR        RGB(74, 144, 217)     // 主色蓝
-#define UI_PRIMARY_HOVER        RGB(59, 122, 194)     // 主色深蓝
-#define UI_PRIMARY_PRESSED      RGB(44, 99, 171)      // 主色更蓝
-
-// 强调色
-#define UI_ACCENT_RED         RGB(255, 107, 107)      // 强调红
-#define UI_ACCENT_GREEN       RGB(76, 175, 80)        // 强调绿
-#define UI_ACCENT_ORANGE      RGB(255, 152, 0)        // 强调橙
-
-// 深色主题颜色（预留）
-#define UI_DARK_BG_PRIMARY      RGB(30, 30, 30)       // 主背景：深灰
-#define UI_DARK_BG_SECONDARY    RGB(45, 45, 45)       // 次级背景：中灰
-#define UI_DARK_SURFACE         RGB(54, 54, 54)       // 表面：深灰
-#define UI_DARK_BORDER          RGB(61, 61, 61)       // 边框：暗灰
-#define UI_DARK_TEXT_PRIMARY    RGB(255, 255, 255)    // 主文本：纯白
-#define UI_DARK_TEXT_SECONDARY  RGB(176, 176, 176)    // 次要文本：浅灰
-#define UI_DARK_BUTTON_HOVER    RGB(65, 65, 65)       // 按钮悬停：深灰
-#define UI_DARK_BUTTON_PRESSED  RGB(80, 80, 80)       // 按钮按下：中灰
-
-// ===========================================
-// Fluent 2 菜单样式颜色系统
-// ===========================================
-
-// 浅色主题菜单颜色
-#define FLUENT_MENU_LIGHT_BG        RGB(255, 255, 255)    // 菜单背景：纯白
-#define FLUENT_MENU_LIGHT_HOVER     RGB(243, 243, 243)    // 悬停背景：浅灰
-#define FLUENT_MENU_LIGHT_SEPARATOR RGB(224, 224, 224)    // 分隔线：淡灰
-#define FLUENT_MENU_LIGHT_TEXT      RGB(28, 28, 28)       // 文本：近黑
-#define FLUENT_MENU_LIGHT_SUBTEXT   RGB(92, 92, 92)       // 次要文本：深灰
-#define FLUENT_MENU_LIGHT_BORDER    RGB(220, 220, 220)    // 边框：淡灰
-#define FLUENT_MENU_LIGHT_SHADOW    RGB(0, 0, 0)          // 阴影：黑色
-
-// 深色主题菜单颜色
-#define FLUENT_MENU_DARK_BG         RGB(32, 32, 32)       // 菜单背景：深灰
-#define FLUENT_MENU_DARK_HOVER      RGB(49, 49, 49)       // 悬停背景：中灰
-#define FLUENT_MENU_DARK_SEPARATOR  RGB(62, 62, 62)       // 分隔线：暗灰
-#define FLUENT_MENU_DARK_TEXT       RGB(255, 255, 255)    // 文本：纯白
-#define FLUENT_MENU_DARK_SUBTEXT    RGB(200, 200, 200)    // 次要文本：浅灰
-#define FLUENT_MENU_DARK_BORDER     RGB(56, 56, 56)       // 边框：暗灰
-#define FLUENT_MENU_DARK_SHADOW     RGB(0, 0, 0)          // 阴影：黑色
+// 品牌色（Windows 11 AccentBlue #005FB8）
+#define UI_PRIMARY_COLOR        RGB(0, 95, 184)       // 主色蓝
+#define UI_PRIMARY_HOVER        RGB(0, 78, 155)       // 主色深蓝
+#define UI_PRIMARY_PRESSED      RGB(0, 62, 124)       // 主色更深
 
 // Fluent 2 设计规范
 #define FLUENT_MENU_RADIUS_OUTER    8                     // 外圆角：8px

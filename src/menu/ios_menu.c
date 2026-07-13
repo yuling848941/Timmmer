@@ -37,8 +37,8 @@
 #define SWITCH_WIDTH            34      
 #define SWITCH_HEIGHT           18      
 
-#define COLOR_TEXT_PRIMARY      RGB(30, 30, 30)
-#define COLOR_ACCENT            RGB(0, 103, 192)
+#define COLOR_TEXT_PRIMARY      RGB(32, 32, 32)
+#define COLOR_ACCENT            RGB(0, 95, 184)
 
 // ===========================================
 // 全局变量与数据结构
@@ -78,7 +78,7 @@ static void DrawSwitchWin11(BYTE* pixels, int bufW, int bufH, int x, int y, BOOL
     int sw = SWITCH_WIDTH, sh = SWITCH_HEIGHT, ts = 10;
     int cy = y + (MENU_ITEM_HEIGHT - sh) / 2;
     if (isOn) {
-        FillRoundedRectAA(pixels, bufW, bufH, sh/2, sh/2, x, cy, sw, sh, 0, 103, 192, 255);
+        FillRoundedRectAA(pixels, bufW, bufH, sh/2, sh/2, x, cy, sw, sh, 0, 95, 184, 255);
         FillRoundedRectAA(pixels, bufW, bufH, ts/2, ts/2, x + sw - ts - 4, cy + 4, ts, ts, 255, 255, 255, 255);
     } else {
         FillRoundedRectAA(pixels, bufW, bufH, sh/2, sh/2, x, cy, sw, sh, 180, 180, 180, 255);
@@ -103,7 +103,7 @@ static void DrawItemContent(MenuData* data, int idx, int mx, int y) {
 
     if (it->iconChar && wcslen(it->iconChar) == 1) {
         SelectObject(hdc, data->hFontIcon); 
-        dttOpts.crText = RGB(90, 90, 90);
+        dttOpts.crText = RGB(102, 102, 102);
         RECT rc = {ix, y, ix + MENU_ICON_BOX_W, y + MENU_ITEM_HEIGHT};
         DrawThemeTextEx(hTheme, hdc, 0, 0, it->iconChar, 1, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX, &rc, &dttOpts);
     }
@@ -175,7 +175,7 @@ static LRESULT CALLBACK MenuProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             BITMAPINFOHEADER bi = {sizeof(bi), d->bufWidth, -d->bufHeight, 1, 32, BI_RGB};
             d->hbmBuffer = CreateDIBSection(hdc, (BITMAPINFO*)&bi, DIB_RGB_COLORS, &d->pBits, NULL, 0);
             SelectObject(d->hdcBuffer, d->hbmBuffer);
-            d->hFontLabel = CreateFontW(18, 0,0,0, FW_NORMAL, 0,0,0, DEFAULT_CHARSET, 0,0, CLEARTYPE_QUALITY, 0, L"Microsoft YaHei UI");
+            d->hFontLabel = CreateFontW(18, 0,0,0, FW_NORMAL, 0,0,0, DEFAULT_CHARSET, 0,0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
             d->hFontIcon = CreateFontW(MENU_ICON_SIZE, 0,0,0, FW_NORMAL, 0,0,0, DEFAULT_CHARSET, 0,0, CLEARTYPE_QUALITY, 0, L"Segoe MDL2 Assets");
             ReleaseDC(NULL, hdc); UpdateMenuDisplay(hwnd, d); SetTimer(hwnd, 1, 30, NULL); return 0;
         }

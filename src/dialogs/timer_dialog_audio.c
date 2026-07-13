@@ -11,7 +11,7 @@
 #define DLG_WIDTH  500
 #define DLG_HEIGHT 380
 #define DLG_SHADOW 20
-#define DLG_RADIUS 12
+#define DLG_RADIUS 8
 
 // Hit test IDs
 typedef enum {
@@ -84,7 +84,7 @@ static void DrawSwitchWin11(int x, int y, BOOL isOn) {
     int sw = 34, sh = 18, ts = 10;
     int cy = y + (rcToggleSwitch.bottom - rcToggleSwitch.top - sh) / 2;
     if (isOn) {
-        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, sh / 2, sh / 2, x, cy, sw, sh, 0, 103, 192, 255);
+        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, sh / 2, sh / 2, x, cy, sw, sh, 0, 95, 184, 255);
         FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, ts / 2, ts / 2, x + sw - ts - 4, cy + 4, ts, ts, 255, 255, 255, 255);
     } else {
         FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, sh / 2, sh / 2, x, cy, sw, sh, 180, 180, 180, 255);
@@ -96,34 +96,34 @@ static void DrawSwitchWin11(int x, int y, BOOL isOn) {
 static void RenderDialogUI() {
     memset(g_pBits, 0, DLG_WIDTH * DLG_HEIGHT * 4);
 
-    // Card shadow + main card
+    // Solid panel: fill entire window (system provides drop shadow via DWM)
     RECT rcCard = {DLG_SHADOW, DLG_SHADOW, DLG_WIDTH - DLG_SHADOW, DLG_HEIGHT - DLG_SHADOW};
-    DrawSoftShadowSDF(g_pBits, DLG_WIDTH, DLG_HEIGHT, rcCard.left, rcCard.top, rcCard.right - rcCard.left, rcCard.bottom - rcCard.top, DLG_RADIUS, DLG_SHADOW, 4, 0.15f);
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, DLG_RADIUS, DLG_RADIUS, rcCard.left, rcCard.top, rcCard.right - rcCard.left, rcCard.bottom - rcCard.top, 250, 250, 252, 255);
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, DLG_RADIUS, DLG_RADIUS, 0, 0, DLG_WIDTH, DLG_HEIGHT,
+        GetRValue(UI_LIGHT_BG_PRIMARY), GetGValue(UI_LIGHT_BG_PRIMARY), GetBValue(UI_LIGHT_BG_PRIMARY), 255);
 
     const MenuTexts* texts = GetMenuTexts();
 
-    HFONT hFontLabel = CreateFontW(16, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
-    HFONT hFontSmall  = CreateFontW(14, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
-    HFONT hFontBtn    = CreateFontW(16, 0, 0, 0, FW_SEMIBOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+    HFONT hFontLabel = CreateFontW(16, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
+    HFONT hFontSmall  = CreateFontW(14, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
+    HFONT hFontBtn    = CreateFontW(16, 0, 0, 0, FW_SEMIBOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
     HFONT hFontIcon   = CreateFontW(16, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe MDL2 Assets");
 
     // ---- Toggle Switch ----
     // Label "启用音频提示"
     RECT rcToggleLabel = {DLG_SHADOW + 50, DLG_SHADOW + 58, DLG_SHADOW + 200, DLG_SHADOW + 78};
-    DrawTextSDF(g_hdcBuffer, texts->enableAudio, &rcToggleLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(30, 30, 30));
+    DrawTextSDF(g_hdcBuffer, texts->enableAudio, &rcToggleLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_PRIMARY);
     // Switch control
     DrawSwitchWin11(rcToggleSwitch.left, DLG_SHADOW + 55, g_tempEnableAudio);
 
     // ---- Segment: 音频语言 ----
     RECT rcSegLabel = {DLG_SHADOW + 50, DLG_SHADOW + 105, DLG_SHADOW + 200, DLG_SHADOW + 125};
-    DrawTextSDF(g_hdcBuffer, texts->audioLanguage, &rcSegLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontSmall, RGB(30, 30, 30));
+    DrawTextSDF(g_hdcBuffer, texts->audioLanguage, &rcSegLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontSmall, UI_LIGHT_TEXT_PRIMARY);
 
     // Segmented Control background
     BOOL segHover = (g_hoverId == HIT_SEGMENT_CH || g_hoverId == HIT_SEGMENT_EN || g_hoverId == HIT_SEGMENT_CUSTOM);
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8, rcSegmented.left, rcSegmented.top, rcSegmented.right - rcSegmented.left, rcSegmented.bottom - rcSegmented.top, 245, 245, 245, 255);
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8, rcSegmented.left, rcSegmented.top, rcSegmented.right - rcSegmented.left, rcSegmented.bottom - rcSegmented.top, 249, 249, 249, 255);
     if (segHover) {
-        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8, rcSegmented.left, rcSegmented.top, rcSegmented.right - rcSegmented.left, rcSegmented.bottom - rcSegmented.top, 2, 180, 200, 220, 80);
+        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8, rcSegmented.left, rcSegmented.top, rcSegmented.right - rcSegmented.left, rcSegmented.bottom - rcSegmented.top, 2, 166, 176, 189, 80);
     }
 
     // Three segments (equal width)
@@ -136,16 +136,16 @@ static void RenderDialogUI() {
             int pw = segW - 4;
             BOOL isPressed = (i == 0 && g_pressedId == HIT_SEGMENT_CH) || (i == 1 && g_pressedId == HIT_SEGMENT_EN) || (i == 2 && g_pressedId == HIT_SEGMENT_CUSTOM);
             if (isPressed) {
-                FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, px, rcSegmented.top + 2, pw, rcSegmented.bottom - rcSegmented.top - 4, 0, 80, 170, 255);
+                FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, px, rcSegmented.top + 2, pw, rcSegmented.bottom - rcSegmented.top - 4, 0, 62, 124, 255);
             } else {
-                FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, px, rcSegmented.top + 2, pw, rcSegmented.bottom - rcSegmented.top - 4, 0, 103, 192, 255);
+                FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, px, rcSegmented.top + 2, pw, rcSegmented.bottom - rcSegmented.top - 4, 0, 95, 184, 255);
             }
             RECT rcSegText = {px + 10, rcSegmented.top, px + pw - 10, rcSegmented.bottom};
             DrawTextSDF(g_hdcBuffer, segLabels[i], &rcSegText, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontSmall, RGB(255, 255, 255));
         } else {
             // Not selected
             HitTestID thisHit = (i == 0) ? HIT_SEGMENT_CH : (i == 1 ? HIT_SEGMENT_EN : HIT_SEGMENT_CUSTOM);
-            COLORREF textColor = (g_hoverId == thisHit) ? RGB(0, 103, 192) : RGB(30, 30, 30);
+            COLORREF textColor = (g_hoverId == thisHit) ? UI_PRIMARY_COLOR : UI_LIGHT_TEXT_PRIMARY;
             RECT rcSegText = {rcSegmented.left + i * segW + 10, rcSegmented.top, rcSegmented.left + (i + 1) * segW - 10, rcSegmented.bottom};
             DrawTextSDF(g_hdcBuffer, segLabels[i], &rcSegText, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontSmall, textColor);
         }
@@ -153,7 +153,7 @@ static void RenderDialogUI() {
 
     // ---- Input: 音频文件路径 ----
     RECT rcInputLabel = {DLG_SHADOW + 50, DLG_SHADOW + 190, DLG_SHADOW + 250, DLG_SHADOW + 210};
-    DrawTextSDF(g_hdcBuffer, L"音频文件路径", &rcInputLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontSmall, RGB(30, 30, 30));
+    DrawTextSDF(g_hdcBuffer, L"音频文件路径", &rcInputLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontSmall, UI_LIGHT_TEXT_PRIMARY);
 
     // Input box
     BOOL browseHover = (g_hoverId == HIT_BROWSE);
@@ -167,14 +167,14 @@ static void RenderDialogUI() {
 
     // Path text
     const wchar_t* pathText = wcslen(g_tempCustomPath) > 0 ? g_tempCustomPath : L"Select a custom audio file...";
-    COLORREF pathColor = (wcslen(g_tempCustomPath) > 0) ? RGB(30, 30, 30) : RGB(160, 160, 160);
+    COLORREF pathColor = (wcslen(g_tempCustomPath) > 0) ? UI_LIGHT_TEXT_PRIMARY : UI_LIGHT_TEXT_DISABLED;
     RECT rcPathText = {rcInputBox.left + 12, rcInputBox.top, rcInputBox.right - 12, rcInputBox.bottom};
     DrawTextSDF(g_hdcBuffer, pathText, &rcPathText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontSmall, pathColor);
 
     // Browse button
     BOOL btnHover = (g_hoverId == HIT_BROWSE);
-    COLORREF browseBg = browsePressed ? RGB(200, 200, 205) : (btnHover ? RGB(230, 230, 235) : RGB(240, 240, 242));
-    if (!inputEnabled) browseBg = RGB(248, 248, 248);
+    COLORREF browseBg = browsePressed ? UI_LIGHT_BUTTON_PRESSED : (btnHover ? UI_LIGHT_BUTTON_HOVER : UI_LIGHT_BG_SECONDARY);
+    if (!inputEnabled) browseBg = UI_LIGHT_BG_PRIMARY;
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, rcBrowseBtn.left, rcBrowseBtn.top, rcBrowseBtn.right - rcBrowseBtn.left, rcBrowseBtn.bottom - rcBrowseBtn.top,
         GetRValue(browseBg), GetGValue(browseBg), GetBValue(browseBg), 255);
     if (inputEnabled) {
@@ -185,30 +185,29 @@ static void RenderDialogUI() {
     // Folder icon + "浏览"
     RECT rcBrowseInner = {rcBrowseBtn.left + 8, rcBrowseBtn.top, rcBrowseBtn.right - 8, rcBrowseBtn.bottom};
     if (inputEnabled) {
-        DrawTextSDF(g_hdcBuffer, L"\xE8B7", &rcBrowseInner, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontIcon, RGB(80, 80, 80));
+        DrawTextSDF(g_hdcBuffer, L"\xE8B7", &rcBrowseInner, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontIcon, UI_LIGHT_TEXT_SECONDARY);
     }
     RECT rcBrowseText = {rcBrowseBtn.left + 28, rcBrowseBtn.top, rcBrowseBtn.right - 8, rcBrowseBtn.bottom};
     if (inputEnabled) {
-        DrawTextSDF(g_hdcBuffer, texts->browseAudio, &rcBrowseText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontSmall, RGB(80, 80, 80));
+        DrawTextSDF(g_hdcBuffer, texts->browseAudio, &rcBrowseText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontSmall, UI_LIGHT_TEXT_SECONDARY);
     }
 
     // ---- Action Buttons ----
     BOOL okHover = (g_hoverId == HIT_BTN_OK);
     BOOL okPressed = (g_pressedId == HIT_BTN_OK);
-    COLORREF okBg = okPressed ? RGB(0, 70, 150) : (okHover ? RGB(0, 85, 170) : RGB(0, 103, 192));
-    int okY = rcBtnOk.top + (okPressed ? 1 : 0);
-    DrawSoftShadowSDF(g_pBits, DLG_WIDTH, DLG_HEIGHT, rcBtnOk.left, okY, rcBtnOk.right - rcBtnOk.left, rcBtnOk.bottom - rcBtnOk.top, (rcBtnOk.bottom - rcBtnOk.top) / 2, 12, 4, 0.2f);
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, (rcBtnOk.bottom - rcBtnOk.top) / 2, (rcBtnOk.bottom - rcBtnOk.top) / 2, rcBtnOk.left, okY, rcBtnOk.right - rcBtnOk.left, rcBtnOk.bottom - rcBtnOk.top, GetRValue(okBg), GetGValue(okBg), GetBValue(okBg), 255);
-    RECT rcOkText = {rcBtnOk.left, okY, rcBtnOk.right, okY + (rcBtnOk.bottom - rcBtnOk.top)};
+    COLORREF okBg = okPressed ? UI_PRIMARY_PRESSED : (okHover ? UI_PRIMARY_HOVER : UI_PRIMARY_COLOR);
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rcBtnOk.left, rcBtnOk.top, rcBtnOk.right - rcBtnOk.left, rcBtnOk.bottom - rcBtnOk.top, GetRValue(okBg), GetGValue(okBg), GetBValue(okBg), 255);
+    RECT rcOkText = rcBtnOk;
     DrawTextSDF(g_hdcBuffer, texts->ok, &rcOkText, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, RGB(255, 255, 255));
 
     BOOL cancelHover = (g_hoverId == HIT_BTN_CANCEL);
     BOOL cancelPressed = (g_pressedId == HIT_BTN_CANCEL);
-    COLORREF cancelBg = cancelPressed ? RGB(130, 130, 135) : (cancelHover ? RGB(145, 145, 150) : RGB(160, 160, 165));
-    int cancelY = rcBtnCancel.top + (cancelPressed ? 1 : 0);
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, (rcBtnCancel.bottom - rcBtnCancel.top) / 2, (rcBtnCancel.bottom - rcBtnCancel.top) / 2, rcBtnCancel.left, cancelY, rcBtnCancel.right - rcBtnCancel.left, rcBtnCancel.bottom - rcBtnCancel.top, GetRValue(cancelBg), GetGValue(cancelBg), GetBValue(cancelBg), 255);
-    RECT rcCancelText = {rcBtnCancel.left, cancelY, rcBtnCancel.right, cancelY + (rcBtnCancel.bottom - rcBtnCancel.top)};
-    DrawTextSDF(g_hdcBuffer, texts->cancel, &rcCancelText, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, RGB(255, 255, 255));
+    COLORREF cancelBg = cancelPressed ? UI_LIGHT_BUTTON_PRESSED : (cancelHover ? UI_LIGHT_BUTTON_HOVER : UI_LIGHT_BG_SECONDARY);
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rcBtnCancel.left, rcBtnCancel.top, rcBtnCancel.right - rcBtnCancel.left, rcBtnCancel.bottom - rcBtnCancel.top, GetRValue(cancelBg), GetGValue(cancelBg), GetBValue(cancelBg), 255);
+    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rcBtnCancel.left, rcBtnCancel.top, rcBtnCancel.right - rcBtnCancel.left, rcBtnCancel.bottom - rcBtnCancel.top,
+        1, GetRValue(UI_LIGHT_BORDER), GetGValue(UI_LIGHT_BORDER), GetBValue(UI_LIGHT_BORDER), 255);
+    RECT rcCancelText = rcBtnCancel;
+    DrawTextSDF(g_hdcBuffer, texts->cancel, &rcCancelText, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, UI_LIGHT_TEXT_PRIMARY);
 
     DeleteObject(hFontLabel);
     DeleteObject(hFontSmall);

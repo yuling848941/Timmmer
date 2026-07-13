@@ -56,7 +56,7 @@ void ShowAboutDialog(void) {
     hAboutFont = CreateFontW(
         14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
         OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        fontQuality, DEFAULT_PITCH | FF_DONTCARE, L"Microsoft YaHei"
+        fontQuality, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI Variable"
     );
     SendMessage(hTextBox, WM_SETFONT, (WPARAM)hAboutFont, TRUE);
     
@@ -178,14 +178,18 @@ LRESULT CALLBACK AboutDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM 
             HDC hdcStatic = (HDC)wParam;
             SetTextColor(hdcStatic, UI_LIGHT_TEXT_PRIMARY);
             SetBkColor(hdcStatic, UI_LIGHT_BG_PRIMARY);
-            return (LRESULT)CreateSolidBrush(UI_LIGHT_BG_PRIMARY);
+            static HBRUSH hDlgBgBrush = NULL;
+            if (!hDlgBgBrush) hDlgBgBrush = CreateSolidBrush(UI_LIGHT_BG_PRIMARY);
+            return (LRESULT)hDlgBgBrush;
         }
 
         // 设置按钮控件背景色
         case WM_CTLCOLORBTN: {
             HDC hdcBtn = (HDC)wParam;
             SetBkColor(hdcBtn, UI_LIGHT_BG_PRIMARY);
-            return (LRESULT)CreateSolidBrush(UI_LIGHT_BG_PRIMARY);
+            static HBRUSH hDlgBgBrush2 = NULL;
+            if (!hDlgBgBrush2) hDlgBgBrush2 = CreateSolidBrush(UI_LIGHT_BG_PRIMARY);
+            return (LRESULT)hDlgBgBrush2;
         }
 
         // 绘制对话框背景

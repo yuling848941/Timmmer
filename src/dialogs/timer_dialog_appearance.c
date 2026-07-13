@@ -11,7 +11,7 @@
 #define DLG_WIDTH 460
 #define DLG_HEIGHT 560
 #define DLG_SHADOW 30
-#define DLG_RADIUS 12
+#define DLG_RADIUS 8
 
 // Layout Rects (Virtual hit-test areas, relative to window)
 static RECT rcCard = {DLG_SHADOW, DLG_SHADOW, DLG_WIDTH - DLG_SHADOW, DLG_HEIGHT - DLG_SHADOW};
@@ -71,6 +71,7 @@ static RECT g_dlgStartRect;
 
 static IosMenuItem* g_fontMenuItems = NULL;
 static int g_fontMenuCount = 0;
+static BOOL g_isTrackingMouse = FALSE;
 
 static void FreeFontMenu() {
     if (g_fontMenuItems) {
@@ -124,55 +125,47 @@ static void DrawTextSDF(HDC hdc, const wchar_t* text, RECT* rc, int format, HFON
 static void RenderDialogUI() {
     memset(g_pBits, 0, DLG_WIDTH * DLG_HEIGHT * 4);
     
-    // Draw Card Shadow
-    DrawSoftShadowSDF(g_pBits, DLG_WIDTH, DLG_HEIGHT, rcCard.left, rcCard.top, rcCard.right-rcCard.left, rcCard.bottom-rcCard.top, DLG_RADIUS, DLG_SHADOW, 4, 0.15f);
-    
-    // Draw Main Card
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, DLG_RADIUS, DLG_RADIUS, rcCard.left, rcCard.top, rcCard.right-rcCard.left, rcCard.bottom-rcCard.top, 250, 250, 252, 255);
+    // Solid panel: fill entire window (system provides drop shadow via DWM)
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, DLG_RADIUS, DLG_RADIUS, 0, 0, DLG_WIDTH, DLG_HEIGHT,
+        GetRValue(UI_LIGHT_BG_PRIMARY), GetGValue(UI_LIGHT_BG_PRIMARY), GetBValue(UI_LIGHT_BG_PRIMARY), 255);
 
     // Prepare GDI for Text
-    HFONT hFontLabel = CreateFontW(16, 0,0,0, FW_NORMAL, 0,0,0, DEFAULT_CHARSET, 0,0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
-    HFONT hFontSmall = CreateFontW(14, 0,0,0, FW_NORMAL, 0,0,0, DEFAULT_CHARSET, 0,0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
-    HFONT hFontBtn = CreateFontW(16, 0,0,0, FW_SEMIBOLD, 0,0,0, DEFAULT_CHARSET, 0,0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+    HFONT hFontLabel = CreateFontW(16, 0,0,0, FW_NORMAL, 0,0,0, DEFAULT_CHARSET, 0,0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
+    HFONT hFontSmall = CreateFontW(14, 0,0,0, FW_NORMAL, 0,0,0, DEFAULT_CHARSET, 0,0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
+    HFONT hFontBtn = CreateFontW(16, 0,0,0, FW_SEMIBOLD, 0,0,0, DEFAULT_CHARSET, 0,0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
     
     const MenuTexts* texts = GetMenuTexts();
     
     // Row 1: Font Color
     RECT rcLabelFC = {rcFontColorBox.left, rcFontColorBox.top - 25, rcFontColorBox.right, rcFontColorBox.top};
-    DrawTextSDF(g_hdcBuffer, texts->fontColor, &rcLabelFC, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(30,30,30));
+    DrawTextSDF(g_hdcBuffer, texts->fontColor, &rcLabelFC, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_PRIMARY);
     
     BYTE r = GetRValue(g_tempFontColor), g = GetGValue(g_tempFontColor), b = GetBValue(g_tempFontColor);
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8, rcFontColorBox.left, rcFontColorBox.top, rcFontColorBox.right-rcFontColorBox.left, rcFontColorBox.bottom-rcFontColorBox.top, r, g, b, 255);
     DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8, rcFontColorBox.left, rcFontColorBox.top, rcFontColorBox.right-rcFontColorBox.left, rcFontColorBox.bottom-rcFontColorBox.top, 1, 0, 0, 0, 20); // subtle border
     
     DrawTextSDF(g_hdcBuffer, texts->resetButton, &rcResetText, DT_RIGHT | DT_VCENTER | DT_SINGLELINE, hFontSmall, (g_hoverId == HIT_RESET) ? UI_PRIMARY_HOVER : UI_PRIMARY_COLOR);
-    // Draw underline for Reset
-    RECT rcLineReset = rcResetText; rcLineReset.top += 16;
-    DrawTextSDF(g_hdcBuffer, L"_", &rcLineReset, DT_RIGHT | DT_VCENTER | DT_SINGLELINE, hFontSmall, (g_hoverId == HIT_RESET) ? UI_PRIMARY_HOVER : UI_PRIMARY_COLOR);
 
     // Row 1: Bg Color
     RECT rcLabelBC = {rcBgColorBox.left, rcBgColorBox.top - 25, rcBgColorBox.right, rcBgColorBox.top};
-    DrawTextSDF(g_hdcBuffer, texts->backgroundColor, &rcLabelBC, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(30,30,30));
+    DrawTextSDF(g_hdcBuffer, texts->backgroundColor, &rcLabelBC, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_PRIMARY);
     
     r = GetRValue(g_tempBackgroundColor), g = GetGValue(g_tempBackgroundColor), b = GetBValue(g_tempBackgroundColor);
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8, rcBgColorBox.left, rcBgColorBox.top, rcBgColorBox.right-rcBgColorBox.left, rcBgColorBox.bottom-rcBgColorBox.top, r, g, b, 255);
     DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8, rcBgColorBox.left, rcBgColorBox.top, rcBgColorBox.right-rcBgColorBox.left, rcBgColorBox.bottom-rcBgColorBox.top, 1, 0, 0, 0, 20); // subtle border
     
     DrawTextSDF(g_hdcBuffer, texts->randomButton, &rcRandomText, DT_RIGHT | DT_VCENTER | DT_SINGLELINE, hFontSmall, (g_hoverId == HIT_RANDOM) ? UI_PRIMARY_HOVER : UI_PRIMARY_COLOR);
-    // Draw underline for Random
-    RECT rcLineRandom = rcRandomText; rcLineRandom.top += 16;
-    DrawTextSDF(g_hdcBuffer, L"_", &rcLineRandom, DT_RIGHT | DT_VCENTER | DT_SINGLELINE, hFontSmall, (g_hoverId == HIT_RANDOM) ? UI_PRIMARY_HOVER : UI_PRIMARY_COLOR);
 
     // Row 2: Opacity Slider
     RECT rcLabelOp = {rcSliderTrack.left, rcSliderTrack.top - 25, rcSliderTrack.right, rcSliderTrack.top};
-    DrawTextSDF(g_hdcBuffer, texts->opacity, &rcLabelOp, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(30,30,30));
+    DrawTextSDF(g_hdcBuffer, texts->opacity, &rcLabelOp, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_PRIMARY);
     
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 3, 3, rcSliderTrack.left, rcSliderTrack.top, rcSliderTrack.right-rcSliderTrack.left, rcSliderTrack.bottom-rcSliderTrack.top, 220, 220, 225, 255);
     float pct = (g_tempOpacity - 50) / 205.0f;
     if (pct < 0) pct = 0; if (pct > 1) pct = 1;
     int fillW = (int)((rcSliderTrack.right - rcSliderTrack.left) * pct);
     if (fillW > 0) {
-        FillStripedRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 3, 3, rcSliderTrack.left, rcSliderTrack.top, fillW, rcSliderTrack.bottom-rcSliderTrack.top, 60, 120, 180, 255);
+        FillStripedRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 3, 3, rcSliderTrack.left, rcSliderTrack.top, fillW, rcSliderTrack.bottom-rcSliderTrack.top, 0, 95, 184, 255);
     }
     
     int thumbX = rcSliderTrack.left + fillW;
@@ -182,25 +175,25 @@ static void RenderDialogUI() {
     // Thumb body
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, sliderThumbR, sliderThumbR, thumbX - sliderThumbR, thumbY - sliderThumbR, sliderThumbR*2, sliderThumbR*2, 255, 255, 255, 255);
     // Thumb border
-    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, sliderThumbR, sliderThumbR, thumbX - sliderThumbR, thumbY - sliderThumbR, sliderThumbR*2, sliderThumbR*2, 2, 60, 120, 180, 255);
+    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, sliderThumbR, sliderThumbR, thumbX - sliderThumbR, thumbY - sliderThumbR, sliderThumbR*2, sliderThumbR*2, 2, 0, 95, 184, 255);
 
     wchar_t opText[16]; swprintf(opText, 16, L"%d%%", (int)((g_tempOpacity/255.0f)*100));
     RECT rcOpText = {rcSliderTrack.right + 15, rcSliderTrack.top - 5, rcSliderTrack.right + 60, rcSliderTrack.bottom + 5};
-    DrawTextSDF(g_hdcBuffer, opText, &rcOpText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontBtn, RGB(30,30,30));
+    DrawTextSDF(g_hdcBuffer, opText, &rcOpText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontBtn, UI_LIGHT_TEXT_PRIMARY);
 
     // Row 3: Font Combobox
     RECT rcLabelFnt = {rcFontCombo.left, rcFontCombo.top - 25, rcFontCombo.right, rcFontCombo.top};
-    DrawTextSDF(g_hdcBuffer, texts->font, &rcLabelFnt, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(30,30,30));
+    DrawTextSDF(g_hdcBuffer, texts->font, &rcLabelFnt, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_PRIMARY);
     
     BOOL comboHover = (g_hoverId == HIT_FONT_COMBO);
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, rcFontCombo.left, rcFontCombo.top, rcFontCombo.right-rcFontCombo.left, rcFontCombo.bottom-rcFontCombo.top, 255, 255, 255, 255);
     DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, rcFontCombo.left, rcFontCombo.top, rcFontCombo.right-rcFontCombo.left, rcFontCombo.bottom-rcFontCombo.top, 2, comboHover?0:80, comboHover?120:100, comboHover?190:120, 255);
     
     RECT rcFntText = rcFontCombo; rcFntText.left += 15;
-    DrawTextSDF(g_hdcBuffer, g_tempFontName, &rcFntText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(30,30,30));
+    DrawTextSDF(g_hdcBuffer, g_tempFontName, &rcFntText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_PRIMARY);
     
     // Draw Chevron Down
-    HPEN hPenLine = CreatePen(PS_SOLID, 2, comboHover?RGB(0,120,190):RGB(80,100,120));
+    HPEN hPenLine = CreatePen(PS_SOLID, 2, comboHover?UI_PRIMARY_COLOR:UI_LIGHT_BORDER);
     HGDIOBJ hOldPen = SelectObject(g_hdcBuffer, hPenLine);
     int cx = rcFontCombo.right - 20;
     int cy = rcFontCombo.top + (rcFontCombo.bottom - rcFontCombo.top)/2 - 2;
@@ -218,12 +211,12 @@ static void RenderDialogUI() {
         }
     }
 
-    // Row 4: Transparency Toggle
-    DrawSoftShadowSDF(g_pBits, DLG_WIDTH, DLG_HEIGHT, rcToggleCard.left, rcToggleCard.top, rcToggleCard.right-rcToggleCard.left, rcToggleCard.bottom-rcToggleCard.top, 8, 10, 2, 0.08f);
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8, rcToggleCard.left, rcToggleCard.top, rcToggleCard.right-rcToggleCard.left, rcToggleCard.bottom-rcToggleCard.top, 255, 255, 255, 255);
+    // Row 4: Transparency Toggle (flattened into panel, no floating card)
+    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rcToggleCard.left, rcToggleCard.top, rcToggleCard.right-rcToggleCard.left, rcToggleCard.bottom-rcToggleCard.top,
+        1, GetRValue(UI_LIGHT_BORDER), GetGValue(UI_LIGHT_BORDER), GetBValue(UI_LIGHT_BORDER), 255);
     
     RECT rcToggleText = rcToggleCard; rcToggleText.left += 15;
-    DrawTextSDF(g_hdcBuffer, texts->transparentBackground, &rcToggleText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(30,30,30));
+    DrawTextSDF(g_hdcBuffer, texts->transparentBackground, &rcToggleText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_PRIMARY);
     
     // Draw Switch
     int swX = rcToggleSwitch.left;
@@ -231,7 +224,7 @@ static void RenderDialogUI() {
     int swW = rcToggleSwitch.right - rcToggleSwitch.left;
     int swH = rcToggleSwitch.bottom - rcToggleSwitch.top;
     if (g_tempTransparentBackground) {
-        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, swH/2, swH/2, swX, swY, swW, swH, 0, 103, 192, 255);
+        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, swH/2, swH/2, swX, swY, swW, swH, 0, 95, 184, 255);
         FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, (swH-4)/2, (swH-4)/2, swX + swW - (swH-4) - 2, swY + 2, swH-4, swH-4, 255, 255, 255, 255);
     } else {
         FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, swH/2, swH/2, swX, swY, swW, swH, 180, 180, 180, 255);
@@ -241,21 +234,21 @@ static void RenderDialogUI() {
     // Row 5: Action Buttons
     // Apply
     BOOL applyHover = (g_hoverId == HIT_BTN_APPLY);
-    BOOL applyPressed = (g_pressedId == HIT_BTN_APPLY);
-    int ay = rcBtnApply.top + (applyPressed ? 1 : 0);
-    DrawSoftShadowSDF(g_pBits, DLG_WIDTH, DLG_HEIGHT, rcBtnApply.left, ay, rcBtnApply.right-rcBtnApply.left, rcBtnApply.bottom-rcBtnApply.top, (rcBtnApply.bottom-rcBtnApply.top)/2, 12, 4, 0.2f);
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, (rcBtnApply.bottom-rcBtnApply.top)/2, (rcBtnApply.bottom-rcBtnApply.top)/2, rcBtnApply.left, ay, rcBtnApply.right-rcBtnApply.left, rcBtnApply.bottom-rcBtnApply.top, applyHover?0:30, applyHover?90:110, applyHover?180:190, 255);
-    RECT rcApplyT = rcBtnApply; rcApplyT.top = ay; rcApplyT.bottom = ay + (rcBtnApply.bottom-rcBtnApply.top);
+    COLORREF applyFill = applyHover ? UI_PRIMARY_HOVER : UI_PRIMARY_COLOR;
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rcBtnApply.left, rcBtnApply.top, rcBtnApply.right-rcBtnApply.left, rcBtnApply.bottom-rcBtnApply.top,
+        GetRValue(applyFill), GetGValue(applyFill), GetBValue(applyFill), 255);
+    RECT rcApplyT = rcBtnApply;
     DrawTextSDF(g_hdcBuffer, L"Apply", &rcApplyT, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, RGB(255,255,255));
 
     // Cancel
     BOOL cancelHover = (g_hoverId == HIT_BTN_CANCEL);
-    BOOL cancelPressed = (g_pressedId == HIT_BTN_CANCEL);
-    int btnCy = rcBtnCancel.top + (cancelPressed ? 1 : 0);
-    DrawSoftShadowSDF(g_pBits, DLG_WIDTH, DLG_HEIGHT, rcBtnCancel.left, btnCy, rcBtnCancel.right-rcBtnCancel.left, rcBtnCancel.bottom-rcBtnCancel.top, (rcBtnCancel.bottom-rcBtnCancel.top)/2, 10, 2, 0.1f);
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, (rcBtnCancel.bottom-rcBtnCancel.top)/2, (rcBtnCancel.bottom-rcBtnCancel.top)/2, rcBtnCancel.left, btnCy, rcBtnCancel.right-rcBtnCancel.left, rcBtnCancel.bottom-rcBtnCancel.top, cancelHover?130:150, cancelHover?130:150, cancelHover?135:155, 255);
-    RECT rcCancelT = rcBtnCancel; rcCancelT.top = btnCy; rcCancelT.bottom = btnCy + (rcBtnCancel.bottom-rcBtnCancel.top);
-    DrawTextSDF(g_hdcBuffer, L"Cancel", &rcCancelT, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, RGB(255,255,255));
+    COLORREF cancelFill = cancelHover ? UI_LIGHT_BUTTON_HOVER : UI_LIGHT_BG_SECONDARY;
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rcBtnCancel.left, rcBtnCancel.top, rcBtnCancel.right-rcBtnCancel.left, rcBtnCancel.bottom-rcBtnCancel.top,
+        GetRValue(cancelFill), GetGValue(cancelFill), GetBValue(cancelFill), 255);
+    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rcBtnCancel.left, rcBtnCancel.top, rcBtnCancel.right-rcBtnCancel.left, rcBtnCancel.bottom-rcBtnCancel.top,
+        1, GetRValue(UI_LIGHT_BORDER), GetGValue(UI_LIGHT_BORDER), GetBValue(UI_LIGHT_BORDER), 255);
+    RECT rcCancelT = rcBtnCancel;
+    DrawTextSDF(g_hdcBuffer, L"Cancel", &rcCancelT, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, UI_LIGHT_TEXT_PRIMARY);
 
     DeleteObject(hFontLabel);
     DeleteObject(hFontSmall);
@@ -374,6 +367,15 @@ LRESULT CALLBACK ModernAppearanceDialogProc(HWND hwnd, UINT msg, WPARAM wParam, 
             return 0;
         }
         case WM_MOUSEMOVE: {
+            if (!g_isTrackingMouse) {
+                TRACKMOUSEEVENT tme;
+                tme.cbSize = sizeof(TRACKMOUSEEVENT);
+                tme.dwFlags = TME_LEAVE;
+                tme.hwndTrack = hwnd;
+                TrackMouseEvent(&tme);
+                g_isTrackingMouse = TRUE;
+            }
+
             POINT pt = {(short)LOWORD(lParam), (short)HIWORD(lParam)};
             if (g_isDraggingDlg) {
                 POINT cur; GetCursorPos(&cur);
@@ -394,6 +396,14 @@ LRESULT CALLBACK ModernAppearanceDialogProc(HWND hwnd, UINT msg, WPARAM wParam, 
             HitTestID hit = HitTest(pt);
             if (hit != g_hoverId) {
                 g_hoverId = hit;
+                UpdateAppearanceLayeredWindow();
+            }
+            return 0;
+        }
+        case WM_MOUSELEAVE: {
+            g_isTrackingMouse = FALSE;
+            if (g_hoverId != HIT_NONE) {
+                g_hoverId = HIT_NONE;
                 UpdateAppearanceLayeredWindow();
             }
             return 0;
@@ -517,6 +527,17 @@ LRESULT CALLBACK ModernAppearanceDialogProc(HWND hwnd, UINT msg, WPARAM wParam, 
                 ApplyPreview();
                 UpdateAppearanceLayeredWindow();
             }
+            return 0;
+        }
+        case WM_CLOSE: {
+            // Treat closing without applying as a Cancel operation
+            g_tempFontColor = g_originalFontColor;
+            g_tempBackgroundColor = g_originalBackgroundColor;
+            g_tempOpacity = g_originalOpacity;
+            g_tempTransparentBackground = g_originalTransparentBackground;
+            wcscpy_s(g_tempFontName, 256, g_originalFontName);
+            ApplyPreview();
+            DestroyWindow(hwnd);
             return 0;
         }
         case WM_DESTROY: {

@@ -54,7 +54,7 @@ static void DrawTextSDF(HDC hdc, const wchar_t* text, RECT* rc, int format, HFON
 static void DrawToggleSwitch(BYTE* pixels, int bufW, int bufH, int x, int y, BOOL isOn, BOOL isEnabled) {
     int swW = 34, swH = 18;
     if (isOn) {
-        FillRoundedRectAA(pixels, bufW, bufH, swH / 2, swH / 2, x, y, swW, swH, 74, 144, 217, 255);
+        FillRoundedRectAA(pixels, bufW, bufH, swH / 2, swH / 2, x, y, swW, swH, 0, 95, 184, 255);
     } else {
         BYTE cr = isEnabled ? 180 : 220;
         FillRoundedRectAA(pixels, bufW, bufH, swH / 2, swH / 2, x, y, swW, swH, cr, cr, isEnabled ? 185 : 225, 255);
@@ -229,34 +229,34 @@ static void RenderDialogUI(void) {
     int S = DLG_SHADOW;
     int cardX = S, cardY = S, cardW = DLG_WIDTH - 2 * S, cardH = DLG_HEIGHT - 2 * S;
 
-    // Shadow + Card
-    DrawSoftShadowSDF(g_pBits, DLG_WIDTH, DLG_HEIGHT, cardX, cardY, cardW, cardH, 12, DLG_SHADOW, 4, 0.15f);
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 12, 12, cardX, cardY, cardW, cardH, 250, 250, 252, 255);
+    // Solid panel: fill entire window (system provides drop shadow via DWM)
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8, 0, 0, DLG_WIDTH, DLG_HEIGHT,
+        GetRValue(UI_LIGHT_BG_PRIMARY), GetGValue(UI_LIGHT_BG_PRIMARY), GetBValue(UI_LIGHT_BG_PRIMARY), 255);
 
     const MenuTexts* texts = GetMenuTexts();
 
     // Fonts
-    HFONT hFontTitle = CreateFontW(-20, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
-    HFONT hFontSection = CreateFontW(-14, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
-    HFONT hFontLabel = CreateFontW(-13, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
-    HFONT hFontBtn = CreateFontW(-14, 0, 0, 0, FW_SEMIBOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+    HFONT hFontTitle = CreateFontW(-20, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
+    HFONT hFontSection = CreateFontW(-14, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
+    HFONT hFontLabel = CreateFontW(-13, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
+    HFONT hFontBtn = CreateFontW(-14, 0, 0, 0, FW_SEMIBOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
     HFONT hFontNum = CreateFontW(-14, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Consolas");
 
     // Title
     RECT rcTitle = {cardX + 20, cardY + 10, cardX + cardW - 20, cardY + 40};
-    DrawTextSDF(g_hdcBuffer, texts->timeSettings, &rcTitle, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontTitle, RGB(28, 28, 30));
+    DrawTextSDF(g_hdcBuffer, texts->timeSettings, &rcTitle, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontTitle, UI_LIGHT_TEXT_PRIMARY);
 
     // Section: Custom Time Setting
     RECT rcSec1 = {cardX + 20, cardY + 48, cardX + cardW - 20, cardY + 68};
-    DrawTextSDF(g_hdcBuffer, texts->setTimeTitle, &rcSec1, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontSection, RGB(28, 28, 30));
+    DrawTextSDF(g_hdcBuffer, texts->setTimeTitle, &rcSec1, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontSection, UI_LIGHT_TEXT_PRIMARY);
 
     // Spinner labels
     RECT rcHL = {S + 30, cardY + 72, S + 130, cardY + 90};
     RECT rcML = {S + 145, cardY + 72, S + 245, cardY + 90};
     RECT rcSL = {S + 260, cardY + 72, S + 360, cardY + 90};
-    DrawTextSDF(g_hdcBuffer, texts->hours, &rcHL, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(92, 92, 97));
-    DrawTextSDF(g_hdcBuffer, texts->minutes, &rcML, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(92, 92, 97));
-    DrawTextSDF(g_hdcBuffer, texts->seconds, &rcSL, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(92, 92, 97));
+    DrawTextSDF(g_hdcBuffer, texts->hours, &rcHL, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_SECONDARY);
+    DrawTextSDF(g_hdcBuffer, texts->minutes, &rcML, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_SECONDARY);
+    DrawTextSDF(g_hdcBuffer, texts->seconds, &rcSL, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_SECONDARY);
 
     // Spinner buttons and display fields
     wchar_t buf[8];
@@ -265,12 +265,12 @@ static void RenderDialogUI(void) {
     // --- Hours spinner ---
     BOOL hrsEnabled = g_tempShowHours;
     BOOL hM = (g_hoverId == HIT_HRS_MINUS), hMP = (g_pressedId == HIT_HRS_MINUS);
-    COLORREF hMC = hrsEnabled ? (hMP ? RGB(200, 200, 205) : (hM ? RGB(225, 225, 230) : RGB(245, 245, 247))) : RGB(248, 248, 250);
+    COLORREF hMC = hrsEnabled ? (hMP ? UI_LIGHT_BUTTON_PRESSED : (hM ? UI_LIGHT_BUTTON_HOVER : UI_LIGHT_BG_SECONDARY)) : UI_LIGHT_BG_PRIMARY;
     RECT rHM = {S + 30, S + 107, S + 56, S + 133};
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rHM.left, rHM.top, rHM.right - rHM.left, rHM.bottom - rHM.top,
         GetRValue(hMC), GetGValue(hMC), GetBValue(hMC), 255);
     if (hrsEnabled) {
-        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rHM.left, rHM.top, rHM.right - rHM.left, rHM.bottom - rHM.top, 1, 210, 210, 215, 255);
+        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rHM.left, rHM.top, rHM.right - rHM.left, rHM.bottom - rHM.top, 1, 221, 221, 221, 255);
     }
 
     BOOL hD = (g_hoverId == HIT_HRS_DISPLAY), hDP = (g_pressedId == HIT_HRS_DISPLAY);
@@ -285,24 +285,24 @@ static void RenderDialogUI(void) {
     }
 
     BOOL hP = (g_hoverId == HIT_HRS_PLUS), hPP = (g_pressedId == HIT_HRS_PLUS);
-    COLORREF hPC = hrsEnabled ? (hPP ? RGB(200, 200, 205) : (hP ? RGB(225, 225, 230) : RGB(245, 245, 247))) : RGB(248, 248, 250);
+    COLORREF hPC = hrsEnabled ? (hPP ? UI_LIGHT_BUTTON_PRESSED : (hP ? UI_LIGHT_BUTTON_HOVER : UI_LIGHT_BG_SECONDARY)) : UI_LIGHT_BG_PRIMARY;
     RECT rHP = {S + 98, S + 107, S + 124, S + 133};
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rHP.left, rHP.top, rHP.right - rHP.left, rHP.bottom - rHP.top,
         GetRValue(hPC), GetGValue(hPC), GetBValue(hPC), 255);
     if (hrsEnabled) {
-        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rHP.left, rHP.top, rHP.right - rHP.left, rHP.bottom - rHP.top, 1, 210, 210, 215, 255);
+        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rHP.left, rHP.top, rHP.right - rHP.left, rHP.bottom - rHP.top, 1, 221, 221, 221, 255);
     }
 
     swprintf(buf, 8, L"%02d", g_tempHours);
     RECT rHDt = rHD;
-    COLORREF hrsTextColor = hrsEnabled ? RGB(28, 28, 30) : RGB(180, 180, 185);
-    COLORREF hrsBtnTextColor = hrsEnabled ? RGB(60, 60, 67) : RGB(200, 200, 205);
+    COLORREF hrsTextColor = hrsEnabled ? UI_LIGHT_TEXT_PRIMARY : RGB(168, 168, 168);
+    COLORREF hrsBtnTextColor = hrsEnabled ? UI_LIGHT_TEXT_SECONDARY : UI_LIGHT_BUTTON_PRESSED;
     BOOL hrsEditing = (g_editingField == EDIT_HOURS);
     if (hrsEditing) {
-        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rHD.left, rHD.top, rHD.right - rHD.left, rHD.bottom - rHD.top, 230, 240, 255, 255);
+        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rHD.left, rHD.top, rHD.right - rHD.left, rHD.bottom - rHD.top, 234, 242, 252, 255);
         DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rHD.left, rHD.top, rHD.right - rHD.left, rHD.bottom - rHD.top,
-            2, 74, 144, 217, 255);
-        DrawTextSDF(g_hdcBuffer, g_editBuffer, &rHDt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontNum, RGB(28, 28, 30));
+            2, 0, 95, 184, 255);
+        DrawTextSDF(g_hdcBuffer, g_editBuffer, &rHDt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontNum, UI_LIGHT_TEXT_PRIMARY);
         if (g_cursorVisible) {
             SIZE sz;
             HFONT hOld = (HFONT)SelectObject(g_hdcBuffer, hFontNum);
@@ -316,7 +316,7 @@ static void RenderDialogUI(void) {
             GetTextExtentPoint32W(g_hdcBuffer, g_editBuffer, g_editCursorPos, &sz);
             cursorX = startX + sz.cx;
             RECT cursorRect = {cursorX, rHDt.top + 3, cursorX + 2, rHDt.bottom - 3};
-            FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 1, 1, cursorRect.left, cursorRect.top, cursorRect.right - cursorRect.left, cursorRect.bottom - cursorRect.top, 74, 144, 217, 255);
+            FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 1, 1, cursorRect.left, cursorRect.top, cursorRect.right - cursorRect.left, cursorRect.bottom - cursorRect.top, 0, 95, 184, 255);
         }
     } else {
         DrawTextSDF(g_hdcBuffer, buf, &rHDt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontNum, hrsTextColor);
@@ -330,12 +330,12 @@ static void RenderDialogUI(void) {
     // --- Minutes spinner ---
     BOOL minEnabled = g_tempShowMinutes;
     BOOL mM = (g_hoverId == HIT_MIN_MINUS), mMP = (g_pressedId == HIT_MIN_MINUS);
-    COLORREF mMC = minEnabled ? (mMP ? RGB(200, 200, 205) : (mM ? RGB(225, 225, 230) : RGB(245, 245, 247))) : RGB(248, 248, 250);
+    COLORREF mMC = minEnabled ? (mMP ? UI_LIGHT_BUTTON_PRESSED : (mM ? UI_LIGHT_BUTTON_HOVER : UI_LIGHT_BG_SECONDARY)) : UI_LIGHT_BG_PRIMARY;
     RECT rMM = {S + 145, S + 107, S + 171, S + 133};
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rMM.left, rMM.top, rMM.right - rMM.left, rMM.bottom - rMM.top,
         GetRValue(mMC), GetGValue(mMC), GetBValue(mMC), 255);
     if (minEnabled) {
-        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rMM.left, rMM.top, rMM.right - rMM.left, rMM.bottom - rMM.top, 1, 210, 210, 215, 255);
+        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rMM.left, rMM.top, rMM.right - rMM.left, rMM.bottom - rMM.top, 1, 221, 221, 221, 255);
     }
 
     BOOL mD = (g_hoverId == HIT_MIN_DISPLAY), mDP = (g_pressedId == HIT_MIN_DISPLAY);
@@ -349,24 +349,24 @@ static void RenderDialogUI(void) {
     }
 
     BOOL mP = (g_hoverId == HIT_MIN_PLUS), mPP = (g_pressedId == HIT_MIN_PLUS);
-    COLORREF mPC = minEnabled ? (mPP ? RGB(200, 200, 205) : (mP ? RGB(225, 225, 230) : RGB(245, 245, 247))) : RGB(248, 248, 250);
+    COLORREF mPC = minEnabled ? (mPP ? UI_LIGHT_BUTTON_PRESSED : (mP ? UI_LIGHT_BUTTON_HOVER : UI_LIGHT_BG_SECONDARY)) : UI_LIGHT_BG_PRIMARY;
     RECT rMP = {S + 213, S + 107, S + 239, S + 133};
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rMP.left, rMP.top, rMP.right - rMP.left, rMP.bottom - rMP.top,
         GetRValue(mPC), GetGValue(mPC), GetBValue(mPC), 255);
     if (minEnabled) {
-        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rMP.left, rMP.top, rMP.right - rMP.left, rMP.bottom - rMP.top, 1, 210, 210, 215, 255);
+        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rMP.left, rMP.top, rMP.right - rMP.left, rMP.bottom - rMP.top, 1, 221, 221, 221, 255);
     }
 
     swprintf(buf, 8, L"%02d", g_tempMinutes);
     RECT rMDt = rMD;
-    COLORREF minTextColor = minEnabled ? RGB(28, 28, 30) : RGB(180, 180, 185);
-    COLORREF minBtnTextColor = minEnabled ? RGB(60, 60, 67) : RGB(200, 200, 205);
+    COLORREF minTextColor = minEnabled ? UI_LIGHT_TEXT_PRIMARY : RGB(168, 168, 168);
+    COLORREF minBtnTextColor = minEnabled ? UI_LIGHT_TEXT_SECONDARY : UI_LIGHT_BUTTON_PRESSED;
     BOOL minEditing = (g_editingField == EDIT_MINUTES);
     if (minEditing) {
-        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rMD.left, rMD.top, rMD.right - rMD.left, rMD.bottom - rMD.top, 230, 240, 255, 255);
+        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rMD.left, rMD.top, rMD.right - rMD.left, rMD.bottom - rMD.top, 234, 242, 252, 255);
         DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rMD.left, rMD.top, rMD.right - rMD.left, rMD.bottom - rMD.top,
-            2, 74, 144, 217, 255);
-        DrawTextSDF(g_hdcBuffer, g_editBuffer, &rMDt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontNum, RGB(28, 28, 30));
+            2, 0, 95, 184, 255);
+        DrawTextSDF(g_hdcBuffer, g_editBuffer, &rMDt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontNum, UI_LIGHT_TEXT_PRIMARY);
         if (g_cursorVisible) {
             SIZE sz;
             HFONT hOld = (HFONT)SelectObject(g_hdcBuffer, hFontNum);
@@ -378,7 +378,7 @@ static void RenderDialogUI(void) {
             GetTextExtentPoint32W(g_hdcBuffer, g_editBuffer, g_editCursorPos, &sz);
             int cursorX = startX + sz.cx;
             RECT cursorRect = {cursorX, rMDt.top + 3, cursorX + 2, rMDt.bottom - 3};
-            FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 1, 1, cursorRect.left, cursorRect.top, cursorRect.right - cursorRect.left, cursorRect.bottom - cursorRect.top, 74, 144, 217, 255);
+            FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 1, 1, cursorRect.left, cursorRect.top, cursorRect.right - cursorRect.left, cursorRect.bottom - cursorRect.top, 0, 95, 184, 255);
             SelectObject(g_hdcBuffer, hOld);
         }
     } else {
@@ -393,12 +393,12 @@ static void RenderDialogUI(void) {
     // --- Seconds spinner ---
     BOOL secEnabled = g_tempShowSeconds;
     BOOL sM = (g_hoverId == HIT_SEC_MINUS), sMP = (g_pressedId == HIT_SEC_MINUS);
-    COLORREF sMC = secEnabled ? (sMP ? RGB(200, 200, 205) : (sM ? RGB(225, 225, 230) : RGB(245, 245, 247))) : RGB(248, 248, 250);
+    COLORREF sMC = secEnabled ? (sMP ? UI_LIGHT_BUTTON_PRESSED : (sM ? UI_LIGHT_BUTTON_HOVER : UI_LIGHT_BG_SECONDARY)) : UI_LIGHT_BG_PRIMARY;
     RECT rSM = {S + 260, S + 107, S + 286, S + 133};
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rSM.left, rSM.top, rSM.right - rSM.left, rSM.bottom - rSM.top,
         GetRValue(sMC), GetGValue(sMC), GetBValue(sMC), 255);
     if (secEnabled) {
-        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rSM.left, rSM.top, rSM.right - rSM.left, rSM.bottom - rSM.top, 1, 210, 210, 215, 255);
+        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rSM.left, rSM.top, rSM.right - rSM.left, rSM.bottom - rSM.top, 1, 221, 221, 221, 255);
     }
 
     BOOL sD = (g_hoverId == HIT_SEC_DISPLAY), sDP = (g_pressedId == HIT_SEC_DISPLAY);
@@ -412,24 +412,24 @@ static void RenderDialogUI(void) {
     }
 
     BOOL sP = (g_hoverId == HIT_SEC_PLUS), sPP = (g_pressedId == HIT_SEC_PLUS);
-    COLORREF sPC = secEnabled ? (sPP ? RGB(200, 200, 205) : (sP ? RGB(225, 225, 230) : RGB(245, 245, 247))) : RGB(248, 248, 250);
+    COLORREF sPC = secEnabled ? (sPP ? UI_LIGHT_BUTTON_PRESSED : (sP ? UI_LIGHT_BUTTON_HOVER : UI_LIGHT_BG_SECONDARY)) : UI_LIGHT_BG_PRIMARY;
     RECT rSP = {S + 328, S + 107, S + 354, S + 133};
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rSP.left, rSP.top, rSP.right - rSP.left, rSP.bottom - rSP.top,
         GetRValue(sPC), GetGValue(sPC), GetBValue(sPC), 255);
     if (secEnabled) {
-        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rSP.left, rSP.top, rSP.right - rSP.left, rSP.bottom - rSP.top, 1, 210, 210, 215, 255);
+        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, spinBtnR, spinBtnR, rSP.left, rSP.top, rSP.right - rSP.left, rSP.bottom - rSP.top, 1, 221, 221, 221, 255);
     }
 
     swprintf(buf, 8, L"%02d", g_tempSeconds);
     RECT rSDt = rSD;
-    COLORREF secTextColor = secEnabled ? RGB(28, 28, 30) : RGB(180, 180, 185);
-    COLORREF secBtnTextColor = secEnabled ? RGB(60, 60, 67) : RGB(200, 200, 205);
+    COLORREF secTextColor = secEnabled ? UI_LIGHT_TEXT_PRIMARY : RGB(168, 168, 168);
+    COLORREF secBtnTextColor = secEnabled ? UI_LIGHT_TEXT_SECONDARY : UI_LIGHT_BUTTON_PRESSED;
     BOOL secEditing = (g_editingField == EDIT_SECONDS);
     if (secEditing) {
-        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rSD.left, rSD.top, rSD.right - rSD.left, rSD.bottom - rSD.top, 230, 240, 255, 255);
+        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rSD.left, rSD.top, rSD.right - rSD.left, rSD.bottom - rSD.top, 234, 242, 252, 255);
         DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rSD.left, rSD.top, rSD.right - rSD.left, rSD.bottom - rSD.top,
-            2, 74, 144, 217, 255);
-        DrawTextSDF(g_hdcBuffer, g_editBuffer, &rSDt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontNum, RGB(28, 28, 30));
+            2, 0, 95, 184, 255);
+        DrawTextSDF(g_hdcBuffer, g_editBuffer, &rSDt, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontNum, UI_LIGHT_TEXT_PRIMARY);
         if (g_cursorVisible) {
             SIZE sz;
             HFONT hOld = (HFONT)SelectObject(g_hdcBuffer, hFontNum);
@@ -441,7 +441,7 @@ static void RenderDialogUI(void) {
             GetTextExtentPoint32W(g_hdcBuffer, g_editBuffer, g_editCursorPos, &sz);
             int cursorX = startX + sz.cx;
             RECT cursorRect = {cursorX, rSDt.top + 3, cursorX + 2, rSDt.bottom - 3};
-            FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 1, 1, cursorRect.left, cursorRect.top, cursorRect.right - cursorRect.left, cursorRect.bottom - cursorRect.top, 74, 144, 217, 255);
+            FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 1, 1, cursorRect.left, cursorRect.top, cursorRect.right - cursorRect.left, cursorRect.bottom - cursorRect.top, 0, 95, 184, 255);
             SelectObject(g_hdcBuffer, hOld);
         }
     } else {
@@ -455,11 +455,11 @@ static void RenderDialogUI(void) {
 
     // Separator
     RECT rSep = {cardX + 20, cardY + 142, cardX + cardW - 20, cardY + 144};
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 1, 1, rSep.left, rSep.top, rSep.right - rSep.left, rSep.bottom - rSep.top, 225, 225, 230, 255);
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 1, 1, rSep.left, rSep.top, rSep.right - rSep.left, rSep.bottom - rSep.top, 221, 221, 221, 255);
 
     // Section: Time Display Format
     RECT rcSec2 = {cardX + 20, cardY + 150, cardX + cardW - 20, cardY + 170};
-    DrawTextSDF(g_hdcBuffer, texts->formatTitle, &rcSec2, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontSection, RGB(28, 28, 30));
+    DrawTextSDF(g_hdcBuffer, texts->formatTitle, &rcSec2, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontSection, UI_LIGHT_TEXT_PRIMARY);
 
     // Toggle switches
     BOOL enH = CanToggleHour(g_tempShowHours, g_tempShowMinutes, g_tempShowSeconds, g_tempShowMilliseconds);
@@ -473,30 +473,28 @@ static void RenderDialogUI(void) {
     DrawToggleSwitch(g_pBits, DLG_WIDTH, DLG_HEIGHT, swX1, swY1 + (30 - swH) / 2, g_tempShowHours, enH);
     RECT rcTH = {swX1 + swW + 12, swY1, swX1 + 160, swY1 + 30};
     DrawTextSDF(g_hdcBuffer, texts->hours, &rcTH, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel,
-        enH ? RGB(28, 28, 30) : UI_LIGHT_TEXT_DISABLED);
+        enH ? UI_LIGHT_TEXT_PRIMARY : UI_LIGHT_TEXT_DISABLED);
 
     DrawToggleSwitch(g_pBits, DLG_WIDTH, DLG_HEIGHT, swX2, swY1 + (30 - swH) / 2, g_tempShowMinutes, enM);
     RECT rcTM = {swX2 + swW + 12, swY1, swX2 + 160, swY1 + 30};
     DrawTextSDF(g_hdcBuffer, texts->minutes, &rcTM, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel,
-        enM ? RGB(28, 28, 30) : UI_LIGHT_TEXT_DISABLED);
+        enM ? UI_LIGHT_TEXT_PRIMARY : UI_LIGHT_TEXT_DISABLED);
 
     // Row 2: Second + Millisecond
     DrawToggleSwitch(g_pBits, DLG_WIDTH, DLG_HEIGHT, swX1, swY2 + (30 - swH) / 2, g_tempShowSeconds, enS);
     RECT rcTS = {swX1 + swW + 12, swY2, swX1 + 160, swY2 + 30};
-    DrawTextSDF(g_hdcBuffer, texts->seconds, &rcTS, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(28, 28, 30));
+    DrawTextSDF(g_hdcBuffer, texts->seconds, &rcTS, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_PRIMARY);
 
     DrawToggleSwitch(g_pBits, DLG_WIDTH, DLG_HEIGHT, swX2, swY2 + (30 - swH) / 2, g_tempShowMilliseconds, enMS);
     RECT rcTMS = {swX2 + swW + 12, swY2, swX2 + 160, swY2 + 30};
     DrawTextSDF(g_hdcBuffer, texts->milliseconds, &rcTMS, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel,
-        enMS ? RGB(28, 28, 30) : UI_LIGHT_TEXT_DISABLED);
+        enMS ? UI_LIGHT_TEXT_PRIMARY : UI_LIGHT_TEXT_DISABLED);
 
     // Buttons (centered)
     BOOL bCH = (g_hoverId == HIT_BTN_CONFIRM), bCP = (g_pressedId == HIT_BTN_CONFIRM);
     COLORREF bCC = bCP ? UI_PRIMARY_PRESSED : (bCH ? UI_PRIMARY_HOVER : UI_PRIMARY_COLOR);
     RECT rBtnC = {S + 85, S + 300, S + 175, S + 336};
-    if (bCP) { rBtnC.top += 1; rBtnC.bottom += 1; }
-    DrawSoftShadowSDF(g_pBits, DLG_WIDTH, DLG_HEIGHT, rBtnC.left, rBtnC.top, rBtnC.right - rBtnC.left, rBtnC.bottom - rBtnC.top, 18, 10, 2, 0.15f);
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 18, 18, rBtnC.left, rBtnC.top, rBtnC.right - rBtnC.left, rBtnC.bottom - rBtnC.top,
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rBtnC.left, rBtnC.top, rBtnC.right - rBtnC.left, rBtnC.bottom - rBtnC.top,
         GetRValue(bCC), GetGValue(bCC), GetBValue(bCC), 255);
     RECT rBtnCT = rBtnC;
     DrawTextSDF(g_hdcBuffer, texts->ok, &rBtnCT, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, RGB(255, 255, 255));
@@ -504,10 +502,10 @@ static void RenderDialogUI(void) {
     BOOL bXH = (g_hoverId == HIT_BTN_CANCEL), bXP = (g_pressedId == HIT_BTN_CANCEL);
     COLORREF bXC = bXP ? UI_LIGHT_BUTTON_PRESSED : (bXH ? UI_LIGHT_BUTTON_HOVER : UI_LIGHT_BG_SECONDARY);
     RECT rBtnX = {S + 185, S + 300, S + 275, S + 336};
-    if (bXP) { rBtnX.top += 1; rBtnX.bottom += 1; }
-    DrawSoftShadowSDF(g_pBits, DLG_WIDTH, DLG_HEIGHT, rBtnX.left, rBtnX.top, rBtnX.right - rBtnX.left, rBtnX.bottom - rBtnX.top, 18, 10, 2, 0.10f);
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 18, 18, rBtnX.left, rBtnX.top, rBtnX.right - rBtnX.left, rBtnX.bottom - rBtnX.top,
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rBtnX.left, rBtnX.top, rBtnX.right - rBtnX.left, rBtnX.bottom - rBtnX.top,
         GetRValue(bXC), GetGValue(bXC), GetBValue(bXC), 255);
+    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rBtnX.left, rBtnX.top, rBtnX.right - rBtnX.left, rBtnX.bottom - rBtnX.top,
+        1, GetRValue(UI_LIGHT_BORDER), GetGValue(UI_LIGHT_BORDER), GetBValue(UI_LIGHT_BORDER), 255);
     RECT rBtnXT = rBtnX;
     DrawTextSDF(g_hdcBuffer, texts->cancel, &rBtnXT, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, UI_LIGHT_TEXT_PRIMARY);
 

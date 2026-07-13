@@ -113,10 +113,10 @@ LRESULT CALLBACK IntegratedDialogProc(HWND hDlg, UINT message, WPARAM wParam, LP
             const MenuTexts* texts = GetMenuTexts();
             
             // 创建字体
-            HFONT hFontTitle = CreateFontW(24, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Microsoft YaHei UI");
-            HFONT hFontSection = CreateFontW(18, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Microsoft YaHei UI");
-            HFONT hFontNormal = CreateFontW(17, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Microsoft YaHei UI");
-            HFONT hFontLabel = CreateFontW(15, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Microsoft YaHei UI");
+            HFONT hFontTitle = CreateFontW(24, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
+            HFONT hFontSection = CreateFontW(18, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
+            HFONT hFontNormal = CreateFontW(17, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
+            HFONT hFontLabel = CreateFontW(15, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
 
             // 1. 标题
             HWND hMainTitle = CreateWindowW(L"STATIC", texts->integratedTitle, WS_VISIBLE | WS_CHILD, 30, 25, 300, 35, hDlg, NULL, GetModuleHandle(NULL), NULL);
@@ -262,10 +262,10 @@ LRESULT CALLBACK IntegratedDialogProc(HWND hDlg, UINT message, WPARAM wParam, LP
             // 1. 步进按钮
             if (dis->CtlID >= ID_BTN_HRS_MINUS && dis->CtlID <= ID_BTN_SEC_PLUS) {
                 BOOL isPlus = (dis->CtlID == ID_BTN_HRS_PLUS || dis->CtlID == ID_BTN_MIN_PLUS || dis->CtlID == ID_BTN_SEC_PLUS);
-                COLORREF bgColor = isPressed ? RGB(210, 210, 215) : (isHover ? RGB(235, 235, 240) : RGB(245, 245, 247));
-                DrawRoundRect(dis->hDC, &dis->rcItem, 4, bgColor, RGB(220, 220, 225), 1);
+                COLORREF bgColor = isPressed ? UI_LIGHT_BUTTON_PRESSED : (isHover ? UI_LIGHT_BUTTON_HOVER : UI_LIGHT_BG_SECONDARY);
+                DrawRoundRect(dis->hDC, &dis->rcItem, 4, bgColor, UI_LIGHT_BORDER, 1);
                 SetBkMode(dis->hDC, TRANSPARENT);
-                SetTextColor(dis->hDC, RGB(60, 60, 67));
+                SetTextColor(dis->hDC, UI_LIGHT_TEXT_SECONDARY);
                 DrawTextW(dis->hDC, isPlus ? L"+" : L"-", -1, &dis->rcItem, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
                 return TRUE;
             }
@@ -280,15 +280,15 @@ LRESULT CALLBACK IntegratedDialogProc(HWND hDlg, UINT message, WPARAM wParam, LP
                                      ((dis->CtlID == ID_INTEGRATED_CHECK_SECONDS) ? texts->seconds : texts->milliseconds));
                 
                 // 背景
-                COLORREF chipBg = isHover ? RGB(235, 235, 240) : RGB(245, 245, 247);
-                DrawRoundRect(dis->hDC, &dis->rcItem, 6, chipBg, RGB(230, 230, 235), 1);
+                COLORREF chipBg = isHover ? UI_LIGHT_BUTTON_HOVER : UI_LIGHT_BG_SECONDARY;
+                DrawRoundRect(dis->hDC, &dis->rcItem, 6, chipBg, UI_LIGHT_BUTTON_HOVER, 1);
 
                 // 开关部分
                 int swW = 38, swH = 20;
                 int swY = dis->rcItem.top + (dis->rcItem.bottom - dis->rcItem.top - swH) / 2;
                 RECT swRect = {dis->rcItem.left + 10, swY, dis->rcItem.left + 10 + swW, swY + swH};
-                COLORREF swBg = isOn ? UI_PRIMARY_COLOR : (isHover ? RGB(210, 210, 215) : RGB(230, 230, 235));
-                if (!isEnabled) swBg = RGB(240, 240, 245);
+                COLORREF swBg = isOn ? UI_PRIMARY_COLOR : (isHover ? UI_LIGHT_BUTTON_PRESSED : UI_LIGHT_BUTTON_HOVER);
+                if (!isEnabled) swBg = UI_LIGHT_BG_PRIMARY;
                 DrawRoundRect(dis->hDC, &swRect, swH / 2, swBg, swBg, 1);
 
                 // 滑块
@@ -373,7 +373,9 @@ LRESULT CALLBACK IntegratedDialogProc(HWND hDlg, UINT message, WPARAM wParam, LP
             HDC hdc = (HDC)wParam;
             SetTextColor(hdc, UI_LIGHT_TEXT_PRIMARY);
             SetBkColor(hdc, UI_LIGHT_BG_PRIMARY);
-            return (LRESULT)GetStockObject(WHITE_BRUSH);
+            static HBRUSH hDlgBgBrush = NULL;
+            if (!hDlgBgBrush) hDlgBgBrush = CreateSolidBrush(UI_LIGHT_BG_PRIMARY);
+            return (LRESULT)hDlgBgBrush;
         }
 
         case WM_ERASEBKGND: {

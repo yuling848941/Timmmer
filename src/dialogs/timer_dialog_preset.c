@@ -4,9 +4,9 @@
 #include <uxtheme.h>
 
 #define DLG_WIDTH  480
-#define DLG_HEIGHT 504
+#define DLG_HEIGHT 524
 #define DLG_SHADOW 30
-#define DLG_RADIUS 12
+#define DLG_RADIUS 8
 
 // Layout rects (relative to window, already include shadow offset)
 static RECT rcCard       = {DLG_SHADOW, DLG_SHADOW, DLG_WIDTH - DLG_SHADOW, DLG_HEIGHT - DLG_SHADOW};
@@ -137,14 +137,10 @@ static void DrawPencilIcon(int x, int y) {
     COLORREF c = UI_PRIMARY_COLOR;
     BYTE r = GetRValue(c), g = GetGValue(c), b = GetBValue(c);
 
-    // Thick diagonal shaft: use small filled rects along the diagonal
-    // From (x+3, y+2) to (x+10, y+9) — a bold diagonal bar
-    // Draw as a parallelogram using AA fills
-    // Top-left to bottom-right diagonal
+    // Thick diagonal shaft: bottom-left to top-right
     for (int i = 0; i < 9; i++) {
-        int px = x + 3 + i;
-        int py = y + 2 + i;
-        // 2-pixel wide bar at each step
+        int px = x + 4 + i;
+        int py = y + 10 - i;
         for (int dx = 0; dx <= 2; dx++) {
             for (int dy = 0; dy <= 2; dy++) {
                 int ix = px + dx;
@@ -159,12 +155,11 @@ static void DrawPencilIcon(int x, int y) {
             }
         }
     }
-    // Tip: small dark triangle at bottom-left of the shaft
-    // Draw a small filled rect for the tip
-    for (int dy = 0; dy < 3; dy++) {
-        for (int dx = 0; dx < 4; dx++) {
-            int ix = x + 2 + dx;
-            int iy = y + 11 + dy;
+    // Tip: small dark triangle at bottom-left
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4 - i; j++) {
+            int ix = x + 2 + j;
+            int iy = y + 10 + i;
             int idx = iy * DLG_WIDTH + ix;
             if (idx >= 0 && idx < DLG_WIDTH * DLG_HEIGHT) {
                 g_pBits[idx * 4]     = b;
@@ -175,7 +170,7 @@ static void DrawPencilIcon(int x, int y) {
         }
     }
     // Eraser: pink rect at top-right
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 3, 3, x + 9, y + 1, 6, 4, 210, 130, 130, 255);
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 2, 2, x + 11, y + 1, 4, 4, 210, 130, 130, 255);
 }
 
 // -----------------------------------------------------------
@@ -221,36 +216,31 @@ static void RenderPresetDialog(void) {
     if (!g_pBits) return;
     memset(g_pBits, 0, DLG_WIDTH * DLG_HEIGHT * 4);
 
-    // Shadow + card
-    DrawSoftShadowSDF(g_pBits, DLG_WIDTH, DLG_HEIGHT,
-        rcCard.left, rcCard.top,
-        rcCard.right - rcCard.left, rcCard.bottom - rcCard.top,
-        DLG_RADIUS, DLG_SHADOW, 4, 0.15f);
+    // Solid panel: fill entire window (system provides drop shadow via DWM)
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT,
         DLG_RADIUS, DLG_RADIUS,
-        rcCard.left, rcCard.top,
-        rcCard.right - rcCard.left, rcCard.bottom - rcCard.top,
-        250, 250, 252, 255);
+        0, 0, DLG_WIDTH, DLG_HEIGHT,
+        GetRValue(UI_LIGHT_BG_PRIMARY), GetGValue(UI_LIGHT_BG_PRIMARY), GetBValue(UI_LIGHT_BG_PRIMARY), 255);
 
     const MenuTexts* texts = GetMenuTexts();
 
-    HFONT hFontTitle = CreateFontW(18, 0, 0, 0, FW_SEMIBOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
-    HFONT hFontLabel = CreateFontW(14, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
-    HFONT hFontBtn   = CreateFontW(15, 0, 0, 0, FW_SEMIBOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
-    HFONT hFontItem  = CreateFontW(14, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
-    HFONT hFontHint  = CreateFontW(12, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+    HFONT hFontTitle = CreateFontW(18, 0, 0, 0, FW_SEMIBOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
+    HFONT hFontLabel = CreateFontW(14, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
+    HFONT hFontBtn   = CreateFontW(15, 0, 0, 0, FW_SEMIBOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
+    HFONT hFontItem  = CreateFontW(14, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
+    HFONT hFontHint  = CreateFontW(12, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
 
     // ---- Title ----
     RECT rcTitle = {rcCard.left + 20, rcCard.top + 20, rcCard.right - 20, rcCard.top + 55};
-    DrawTextSDF(g_hdcBuffer, texts->presetEditTitle, &rcTitle, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontTitle, RGB(30, 30, 30));
+    DrawTextSDF(g_hdcBuffer, texts->presetEditTitle, &rcTitle, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontTitle, UI_LIGHT_TEXT_PRIMARY);
 
     // ---- New Preset label ----
     RECT rcNPLabel = {rcInput.left, rcInput.top - 22, rcInput.right, rcInput.top};
-    DrawTextSDF(g_hdcBuffer, texts->newPreset, &rcNPLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(60, 60, 60));
+    DrawTextSDF(g_hdcBuffer, texts->newPreset, &rcNPLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_SECONDARY);
 
     // ---- Input field ----
     BOOL inputHover = (g_pressedId == HIT_INPUT);
-    COLORREF inputBorder = g_inputFocused ? UI_PRIMARY_COLOR : (inputHover ? UI_PRIMARY_HOVER : RGB(80, 100, 120));
+    COLORREF inputBorder = g_inputFocused ? UI_PRIMARY_COLOR : (inputHover ? UI_PRIMARY_HOVER : UI_LIGHT_BORDER);
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8,
         rcInput.left, rcInput.top, rcInput.right - rcInput.left, rcInput.bottom - rcInput.top,
         255, 255, 255, 255);
@@ -261,11 +251,11 @@ static void RenderPresetDialog(void) {
     // Input text
     if (g_inputBuf[0] != L'\0') {
         RECT rcInputText = {rcInput.left + 12, rcInput.top + 2, rcInput.right - 12, rcInput.bottom - 2};
-        DrawTextSDF(g_hdcBuffer, g_inputBuf, &rcInputText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(28, 28, 30));
+        DrawTextSDF(g_hdcBuffer, g_inputBuf, &rcInputText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_PRIMARY);
     } else if (g_inputFocused) {
         // Show placeholder when empty and focused
         RECT rcInputText = {rcInput.left + 12, rcInput.top + 2, rcInput.right - 12, rcInput.bottom - 2};
-        DrawTextSDF(g_hdcBuffer, L"输入分钟数...", &rcInputText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(180, 180, 185));
+        DrawTextSDF(g_hdcBuffer, L"输入分钟数...", &rcInputText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_DISABLED);
     }
 
     // Cursor
@@ -283,7 +273,7 @@ static void RenderPresetDialog(void) {
     // ---- Add button ----
     BOOL addHover = (g_pressedId == HIT_BTN_ADD);
     COLORREF addFill = addHover ? UI_PRIMARY_HOVER : UI_PRIMARY_COLOR;
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8,
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4,
         rcBtnAdd.left, rcBtnAdd.top, rcBtnAdd.right - rcBtnAdd.left, rcBtnAdd.bottom - rcBtnAdd.top,
         GetRValue(addFill), GetGValue(addFill), GetBValue(addFill), 255);
     RECT rcAddT = rcBtnAdd;
@@ -291,15 +281,9 @@ static void RenderPresetDialog(void) {
 
     // ---- Preset List label ----
     RECT rcPLLabel = {rcListArea.left, rcListArea.top - 24, rcListArea.right, rcListArea.top};
-    DrawTextSDF(g_hdcBuffer, texts->presetList, &rcPLLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, RGB(60, 60, 60));
+    DrawTextSDF(g_hdcBuffer, texts->presetList, &rcPLLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_SECONDARY);
 
-    // ---- List container ----
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8,
-        rcListArea.left, rcListArea.top, rcListArea.right - rcListArea.left, rcListArea.bottom - rcListArea.top,
-        255, 255, 255, 255);
-    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8,
-        rcListArea.left, rcListArea.top, rcListArea.right - rcListArea.left, rcListArea.bottom - rcListArea.top,
-        1, 0, 0, 0, 30);
+    // ---- List container: flattened into panel (no separate card) ----
 
     // ---- Draw list items ----
     int visCount = GetVisibleCount();
@@ -314,22 +298,18 @@ static void RenderPresetDialog(void) {
         BOOL isHover = (g_hoverRow == idx);
         BOOL isEditing = (g_editingIndex == idx);
 
-        // Item background
+        // Item background: Win11-style subtle hover only
         if (isHover && !isEditing) {
-            FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6,
+            FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4,
                 rcListArea.left + 4, itemY, contentW, ITEM_HEIGHT,
-                220, 235, 248, 255);
-        } else if (!isEditing) {
-            FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6,
-                rcListArea.left + 4, itemY, contentW, ITEM_HEIGHT,
-                250, 250, 252, 255);
+                238, 238, 238, 255);
         }
 
         // Item text
         wchar_t itemText[32];
         swprintf(itemText, 32, L"%d 分钟", g_timerState.presetTimes[idx]);
         RECT rcItemText = {rcListArea.left + 14, itemY, rcListArea.left + 14 + contentW - ICON_SIZE * 2 - 24, itemY + ITEM_HEIGHT};
-        DrawTextSDF(g_hdcBuffer, itemText, &rcItemText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontItem, RGB(40, 40, 40));
+        DrawTextSDF(g_hdcBuffer, itemText, &rcItemText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontItem, UI_LIGHT_TEXT_PRIMARY);
 
         // Icons (only when not editing this row)
         if (!isEditing) {
@@ -350,21 +330,17 @@ static void RenderPresetDialog(void) {
         // Track
         FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4,
             rcScrollbar.left, rcScrollbar.top, SCROLLBAR_W, sbTrackH,
-            230, 230, 235, 255);
+            224, 224, 224, 255);
         // Thumb
         FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4,
             rcScrollbar.left, thumbY, SCROLLBAR_W, thumbH,
-            160, 160, 165, 255);
+            166, 166, 166, 255);
     }
 
     // ---- OK button ----
     BOOL okHover = (g_pressedId == HIT_BTN_OK);
     COLORREF okFill = okHover ? UI_PRIMARY_HOVER : UI_PRIMARY_COLOR;
-    DrawSoftShadowSDF(g_pBits, DLG_WIDTH, DLG_HEIGHT,
-        rcBtnOK.left, rcBtnOK.top, rcBtnOK.right - rcBtnOK.left, rcBtnOK.bottom - rcBtnOK.top,
-        (rcBtnOK.bottom - rcBtnOK.top) / 2, 12, 3, 0.15f);
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT,
-        (rcBtnOK.bottom - rcBtnOK.top) / 2, (rcBtnOK.bottom - rcBtnOK.top) / 2,
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4,
         rcBtnOK.left, rcBtnOK.top, rcBtnOK.right - rcBtnOK.left, rcBtnOK.bottom - rcBtnOK.top,
         GetRValue(okFill), GetGValue(okFill), GetBValue(okFill), 255);
     RECT rcOKT = rcBtnOK;
@@ -372,17 +348,19 @@ static void RenderPresetDialog(void) {
 
     // ---- Cancel button ----
     BOOL cancelHover = (g_pressedId == HIT_BTN_CANCEL);
-    COLORREF cancelFill = cancelHover ? RGB(200, 200, 205) : RGB(180, 180, 185);
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT,
-        (rcBtnCancel.bottom - rcBtnCancel.top) / 2, (rcBtnCancel.bottom - rcBtnCancel.top) / 2,
+    COLORREF cancelFill = cancelHover ? UI_LIGHT_BUTTON_PRESSED : UI_LIGHT_BG_SECONDARY;
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4,
         rcBtnCancel.left, rcBtnCancel.top, rcBtnCancel.right - rcBtnCancel.left, rcBtnCancel.bottom - rcBtnCancel.top,
         GetRValue(cancelFill), GetGValue(cancelFill), GetBValue(cancelFill), 255);
+    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4,
+        rcBtnCancel.left, rcBtnCancel.top, rcBtnCancel.right - rcBtnCancel.left, rcBtnCancel.bottom - rcBtnCancel.top,
+        1, GetRValue(UI_LIGHT_BORDER), GetGValue(UI_LIGHT_BORDER), GetBValue(UI_LIGHT_BORDER), 255);
     RECT rcCancelT = rcBtnCancel;
-    DrawTextSDF(g_hdcBuffer, texts->cancel, &rcCancelT, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, RGB(60, 60, 60));
+    DrawTextSDF(g_hdcBuffer, texts->cancel, &rcCancelT, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, UI_LIGHT_TEXT_SECONDARY);
 
     // ---- Hint text ----
-    RECT rcHint = {rcCard.left + 20, rcBtnOK.bottom + 8, rcBtnOK.left - 10, rcCard.bottom - 10};
-    DrawTextSDF(g_hdcBuffer, texts->doubleClickHint, &rcHint, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontHint, RGB(140, 140, 145));
+    RECT rcHint = {rcCard.left + 20, rcBtnOK.top, rcBtnOK.left - 10, rcBtnOK.bottom};
+    DrawTextSDF(g_hdcBuffer, texts->doubleClickHint, &rcHint, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontHint, UI_LIGHT_TEXT_SECONDARY);
 
     // ---- Inline error message below input ----
     if (g_showToast) {
@@ -832,7 +810,7 @@ LRESULT CALLBACK PresetEditDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
             HWND hEdit = (HWND)lParam;
             // Set white background and black text for EDIT controls
             SetBkColor(hdcEdit, RGB(255, 255, 255));
-            SetTextColor(hdcEdit, RGB(28, 28, 30));
+            SetTextColor(hdcEdit, UI_LIGHT_TEXT_PRIMARY);
             // Return a white brush
             static HBRUSH hWhiteBrush = NULL;
             if (!hWhiteBrush) hWhiteBrush = CreateSolidBrush(RGB(255, 255, 255));

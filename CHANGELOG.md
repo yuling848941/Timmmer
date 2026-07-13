@@ -2,6 +2,30 @@
 
 本文档记录了Timer计时器应用程序的所有重要更改。
 
+## [1.3.0] - 2026-07-13
+
+### UI 现代化重构 / UI Modernization
+- 🎨 **Windows 11 原生视觉风格**
+  - 主色调从 iOS 蓝 `#4A90D9` 切换为 Windows 11 系统蓝 `#005FB8`。
+  - 中性灰色对齐 Win11 Settings / Mica 规格（面板底色 `#F3F3F3`，Hairline 边框）。
+  - 所有自绘对话框（设置时间、预设编辑、音频设置、外观设置）卡片压平为实心面板，阴影改为系统 DWM 原生绘制。
+  - 窗口圆角从 12px 统一到 8px，对齐 Win11 窗口标准。
+  - 按钮从胶囊形（pill）+ 自绘阴影，改为 4px 圆角 Win11 标准按钮。
+  - 预设编辑器的三层卡片嵌套压平；外观设置的浮动 toggle card 移除。
+  - "重置""随机"文字链接去掉 HTML `<a>` 样式下划线装饰。
+- ✍️ **字体统一为 Segoe UI Variable**
+  - 所有对话框和右键菜单的字体从 `Segoe UI` / `Microsoft YaHei UI` 统一为 `Segoe UI Variable`（中文自动回退 YaHei）。
+- 📋 **右键菜单配色统一**
+  - 菜单本地调色板的 iOS 蓝统一到全局主色 `#005FB8`。
+
+### 核心改进 / Core Improvements
+- 🧹 **清理死代码颜色常量**
+  - 移除 24 个从未使用的颜色宏（`UI_DARK_*`、`FLUENT_MENU_*` 颜色、`UI_ACCENT_RED/GREEN/ORANGE`）。
+- 🛠️ **修复 About 对话框 GDI 句柄泄漏**
+  - `WM_CTLCOLORSTATIC` / `WM_CTLCOLORBTN` 每次 `CreateSolidBrush` 不释放，改为静态画刷复用。
+- 🔢 **版本信息同步**
+  - 资源文件 `FILEVERSION` / `PRODUCTVERSION` 从 `1.0.0.0` 同步到 `1.3.0.0`，修正 `OriginalFilename` 为 `Timmmer.exe`。
+
 ## [1.2.2] - 2026-04-24
 
 ### 优化 / Optimization

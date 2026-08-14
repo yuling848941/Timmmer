@@ -60,6 +60,11 @@ void StartTimer(void) {
     // 如果显示毫秒，使用更高的刷新频率
     int interval = g_timerState.showMilliseconds ? 50 : 1000; // 毫秒模式下20FPS，否则1秒
     g_timerState.timerId = SetTimer(g_timerState.hMainWnd, 1, interval, NULL);
+    if (g_timerState.timerId == 0) {
+        // SetTimer 失败：无法驱动计时，恢复为未运行状态
+        g_timerState.isRunning = FALSE;
+        return;
+    }
     
     // 更新托盘图标状态
     UpdateTrayIcon();

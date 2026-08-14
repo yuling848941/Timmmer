@@ -451,6 +451,12 @@ static void AddToCache(HFONT hFont, const wchar_t* fontName, int size, BOOL bold
     // 如果没有空闲位置，替换最旧的
     if (index == -1) {
         index = 0;
+        // 若被替换的字体正是 UI 渲染缓存的字体，先失效 UI 缓存，避免悬空句柄
+        extern TimerState g_timerState;
+        if (g_timerState.cachedHFont == g_fontManager.cache[index].hFont) {
+            g_timerState.cachedHFont = NULL;
+            g_timerState.cachedFontValid = FALSE;
+        }
         ClearCacheEntry(index);
     }
     

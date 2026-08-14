@@ -22,13 +22,8 @@ build.bat
 
 ## 配置文件
 
-程序在用户目录 `%USERPROFILE%/` 下创建:
-- `timer_format_config.ini` - 时间格式
-- `timer_appearance_config.ini` - 外观设置
-- `timer_preset_config.ini` - 预设时间
-- `timer_audio_config.ini` - 音频设置
-- `timer_last_time.ini` - 最后时间
-- `timer_window_config.ini` - 窗口位置
+程序在用户目录 `%USERPROFILE%/` 下创建统一的配置文件:
+- `timer_config.ini` - 时间格式、外观、预设时间、音频、最后时间与窗口状态的统一配置（由 `src/core/timer_config.c` 管理）
 
 ## 运行时依赖
 

@@ -8,6 +8,10 @@
 #define DLG_SHADOW 30
 #define DLG_RADIUS 8
 
+// Unified value limit for add/edit (minutes)
+#define PRESET_MIN_MINUTES 1
+#define PRESET_MAX_MINUTES 999
+
 // Layout rects (relative to window, already include shadow offset)
 static RECT rcCard       = {DLG_SHADOW, DLG_SHADOW, DLG_WIDTH - DLG_SHADOW, DLG_HEIGHT - DLG_SHADOW};
 static RECT rcInput      = {DLG_SHADOW + 20, DLG_SHADOW + 90, DLG_SHADOW + 350, DLG_SHADOW + 126};
@@ -19,25 +23,27 @@ static RECT rcScrollbar  = {DLG_SHADOW + 392, DLG_SHADOW + 194, DLG_SHADOW + 400
 
 #define ITEM_HEIGHT  36
 #define ITEM_GAP     4
-#define ITEM_CONTENT_W  336  // list area width minus scrollbar and padding
-#define ICON_SIZE    16
 #define SCROLLBAR_W  8
-#define MAX_PRESETS  20
+// Match the real storage cap in timer_types.h (presetTimes[10])
+#define MAX_PRESETS  10
+#define DELETE_HIT_W 24   // width of the hover delete (x) hit area on each row
 
-static wchar_t g_inputBuf[16] = {0};
+static wchar_t g_inputBuf[16] = {0};     // top "add" field buffer
+static wchar_t g_editBuf[16] = {0};      // inline row-edit buffer
 static BOOL g_inputFocused = FALSE;
 static BOOL g_cursorVisible = FALSE;
 static BOOL g_showToast = FALSE;
 static DWORD g_toastStart = 0;
 static const DWORD TOAST_DURATION = 2000; // 2 seconds
 
-// Backup for Cancel
+// Backup for Cancel / Escape rollback
 static int g_origPresetCount = 0;
 static int g_origPresets[MAX_PRESETS] = {0};
 
 // Forward declarations
 static void UpdatePresetWindow(void);
 static void RefreshList(void);
+static void DoCancelRollback(HWND hwnd);
 
 // Draw text with proper alpha compositing for layered windows
 static void DrawTextSDF(HDC hdc, const wchar_t* text, RECT* rc, int format, HFONT hFont, COLORREF color) {
@@ -50,7 +56,6 @@ static void DrawTextSDF(HDC hdc, const wchar_t* text, RECT* rc, int format, HFON
         DrawThemeTextEx(hTheme, hdc, 0, 0, text, -1, format, rc, &dttOpts);
         CloseThemeData(hTheme);
     } else {
-        // Fallback: regular GDI text (less pretty but won't crash)
         SetBkMode(hdc, TRANSPARENT);
         SetTextColor(hdc, color);
         DrawTextW(hdc, text, -1, rc, format);
@@ -63,8 +68,8 @@ typedef enum {
     HIT_TITLE_BAR,
     HIT_INPUT,
     HIT_BTN_ADD,
-    HIT_ITEM_EDIT,
-    HIT_ITEM_DELETE,
+    HIT_ITEM_TEXT,    // click row body -> inline edit
+    HIT_ITEM_DELETE,  // hover (x) button
     HIT_SCROLLBAR,
     HIT_BTN_OK,
     HIT_BTN_CANCEL
@@ -76,16 +81,22 @@ static HBITMAP g_hbmBuffer = NULL;
 static BYTE* g_pBits = NULL;
 
 static int g_hoverRow = -1;
-static int g_pressedId = HIT_NONE;
+static HitTestID g_pressedId = HIT_NONE;
 static BOOL g_draggingScrollbar = FALSE;
 static BOOL g_draggingDlg = FALSE;
 static POINT g_dragStartScreen;
 static RECT  g_dlgStartRect;
 
 static int g_scrollOffset = 0;
-static int g_editingIndex = -1;
-static HWND g_hEditCtrl = NULL;
-static int g_editOriginalMinutes = 0;
+static int g_editingIndex = -1;   // -1 = not editing a row; otherwise the preset index being edited
+
+// 拖拽排序状态
+#define DRAG_THRESHOLD 4   // 移动超过这么多像素才算拖拽（否则视为点击）
+static BOOL g_rowPressed = FALSE;     // 鼠标按在某个列表行上（待判定点击 vs 拖拽）
+static int  g_pressedRow = -1;        // 按下的行索引
+static POINT g_rowPressStart;         // 按下时的鼠标位置（用于判定阈值）
+static BOOL g_isDraggingRow = FALSE;  // 已进入行拖拽状态
+static int  g_dropTargetIndex = -1;   // 拖拽过程中当前插入目标索引（插入线位置）
 
 static int GetVisibleCount(void) {
     int h = rcListArea.bottom - rcListArea.top;
@@ -98,115 +109,58 @@ static int GetMaxScroll(void) {
     return (total > vis) ? (total - vis) : 0;
 }
 
-// -----------------------------------------------------------
-// Subclass: inline edit control (handle Enter/Escape)
-// -----------------------------------------------------------
-static WNDPROC g_origEditProc = NULL;
-static LRESULT CALLBACK InlineEditSubclass(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-    if (msg == WM_CHAR) {
-        if (wParam == VK_RETURN) {
-            wchar_t buf[16];
-            GetWindowTextW(hwnd, buf, 16);
-            int minutes = _wtoi(buf);
-            if (minutes > 0 && minutes <= 999) {
-                ModifyPresetTime(g_editingIndex, minutes);
-            }
-            DestroyWindow(hwnd);
-            g_hEditCtrl = NULL;
-            g_editingIndex = -1;
-            SetFocus(g_hPresetDialog);
-            RefreshList();
-            return 0;
-        } else if (wParam == VK_ESCAPE) {
-            DestroyWindow(hwnd);
-            g_hEditCtrl = NULL;
-            g_editingIndex = -1;
-            SetFocus(g_hPresetDialog);
-            UpdatePresetWindow();
-            return 0;
+// 根据 y 坐标返回拖拽落点对应的"插入索引"（0..presetCount）
+// 落在屏幕上第 i 行上半部 → 插入到 i 之前；下半部 → 插入到 i+1 之前
+static int PointToDropIndex(int y) {
+    int visCount = GetVisibleCount();
+    for (int i = 0; i < visCount && (g_scrollOffset + i) < g_timerState.presetCount; i++) {
+        int itemY = rcListArea.top + 8 + i * (ITEM_HEIGHT + ITEM_GAP);
+        int rowMid = itemY + ITEM_HEIGHT / 2;
+        if (y < rowMid) {
+            return g_scrollOffset + i;
         }
     }
-    return CallWindowProcW(g_origEditProc, hwnd, msg, wParam, lParam);
+    return g_timerState.presetCount;
 }
 
 // -----------------------------------------------------------
-// Draw pencil/edit icon (16x16) at (x, y)
-// Simple bold pencil: thick diagonal body + tip
+// Inline-edit helpers (reuse the self-drawn input mechanism)
 // -----------------------------------------------------------
-static void DrawPencilIcon(int x, int y) {
-    COLORREF c = UI_PRIMARY_COLOR;
-    BYTE r = GetRValue(c), g = GetGValue(c), b = GetBValue(c);
 
-    // Thick diagonal shaft: bottom-left to top-right
-    for (int i = 0; i < 9; i++) {
-        int px = x + 4 + i;
-        int py = y + 10 - i;
-        for (int dx = 0; dx <= 2; dx++) {
-            for (int dy = 0; dy <= 2; dy++) {
-                int ix = px + dx;
-                int iy = py + dy;
-                int idx = iy * DLG_WIDTH + ix;
-                if (idx >= 0 && idx < DLG_WIDTH * DLG_HEIGHT) {
-                    g_pBits[idx * 4]     = b;
-                    g_pBits[idx * 4 + 1] = g;
-                    g_pBits[idx * 4 + 2] = r;
-                    g_pBits[idx * 4 + 3] = 255;
-                }
-            }
-        }
+// Commit the current inline edit. Returns TRUE if committed.
+static BOOL CommitInlineEdit(void) {
+    if (g_editingIndex < 0) return FALSE;
+    int minutes = _wtoi(g_editBuf);
+    if (minutes >= PRESET_MIN_MINUTES && minutes <= PRESET_MAX_MINUTES) {
+        ModifyPresetTime(g_editingIndex, minutes);
+    } else if (g_editBuf[0] != L'\0') {
+        // Invalid value — show error, discard edit
+        g_showToast = TRUE;
+        g_toastStart = GetTickCount();
     }
-    // Tip: small dark triangle at bottom-left
-    for (int i = 0; i < 4; i++) {
-        for (int j = 0; j < 4 - i; j++) {
-            int ix = x + 2 + j;
-            int iy = y + 10 + i;
-            int idx = iy * DLG_WIDTH + ix;
-            if (idx >= 0 && idx < DLG_WIDTH * DLG_HEIGHT) {
-                g_pBits[idx * 4]     = b;
-                g_pBits[idx * 4 + 1] = g;
-                g_pBits[idx * 4 + 2] = r;
-                g_pBits[idx * 4 + 3] = 255;
-            }
-        }
-    }
-    // Eraser: pink rect at top-right
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 2, 2, x + 11, y + 1, 4, 4, 210, 130, 130, 255);
+    g_editingIndex = -1;
+    g_editBuf[0] = L'\0';
+    return TRUE;
 }
 
-// -----------------------------------------------------------
-// Draw trash can icon (16x16) at (x, y)
-// -----------------------------------------------------------
-static void DrawTrashIcon(int x, int y) {
-    COLORREF c = UI_PRIMARY_COLOR;
-    BYTE r = GetRValue(c), g = GetGValue(c), b = GetBValue(c);
+// Cancel the current inline edit without saving.
+static void CancelInlineEdit(void) {
+    g_editingIndex = -1;
+    g_editBuf[0] = L'\0';
+}
 
-    // Body: rectangle
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 2, 2, x + 3, y + 5, 10, 10, r, g, b, 255);
-    // Lid: horizontal bar
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 2, 2, x + 2, y + 3, 12, 3, r, g, b, 255);
-    // Handle on top of lid
-    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 2, 2, x + 5, y + 1, 6, 3, 2, r, g, b, 255);
-    // Two vertical lines inside body (slats)
-    int sx = x + 6;
-    for (int yy = y + 7; yy < y + 14; yy++) {
-        for (int xx = sx - 1; xx <= sx + 1; xx++) {
-            int idx = yy * DLG_WIDTH + xx;
-            if (idx >= 0 && idx < DLG_WIDTH * DLG_HEIGHT) {
-                g_pBits[idx * 4] = b; g_pBits[idx * 4 + 1] = g;
-                g_pBits[idx * 4 + 2] = r; g_pBits[idx * 4 + 3] = 255;
-            }
-        }
+// Start inline-editing a row. Copies current value into g_editBuf.
+static void StartInlineEdit(int presetIdx) {
+    if (presetIdx < 0 || presetIdx >= g_timerState.presetCount) return;
+    // If another row is being edited, commit it first
+    if (g_editingIndex >= 0 && g_editingIndex != presetIdx) {
+        CommitInlineEdit();
     }
-    sx = x + 9;
-    for (int yy = y + 7; yy < y + 14; yy++) {
-        for (int xx = sx - 1; xx <= sx + 1; xx++) {
-            int idx = yy * DLG_WIDTH + xx;
-            if (idx >= 0 && idx < DLG_WIDTH * DLG_HEIGHT) {
-                g_pBits[idx * 4] = b; g_pBits[idx * 4 + 1] = g;
-                g_pBits[idx * 4 + 2] = r; g_pBits[idx * 4 + 3] = 255;
-            }
-        }
-    }
+    g_editingIndex = presetIdx;
+    swprintf(g_editBuf, 16, L"%d", g_timerState.presetTimes[presetIdx]);
+    g_cursorVisible = TRUE;
+    // Move focus away from the top add field
+    g_inputFocused = FALSE;
 }
 
 // -----------------------------------------------------------
@@ -216,11 +170,16 @@ static void RenderPresetDialog(void) {
     if (!g_pBits) return;
     memset(g_pBits, 0, DLG_WIDTH * DLG_HEIGHT * 4);
 
-    // Solid panel: fill entire window (system provides drop shadow via DWM)
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT,
-        DLG_RADIUS, DLG_RADIUS,
-        0, 0, DLG_WIDTH, DLG_HEIGHT,
+    // Panel: soft shadow + fill + thin border (Win11 native dialog style)
+    DrawSoftShadowSDF(g_pBits, DLG_WIDTH, DLG_HEIGHT,
+        rcCard.left, rcCard.top, rcCard.right - rcCard.left, rcCard.bottom - rcCard.top,
+        DLG_RADIUS, DLG_SHADOW, 3, 0.08f);
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, DLG_RADIUS, DLG_RADIUS,
+        rcCard.left, rcCard.top, rcCard.right - rcCard.left, rcCard.bottom - rcCard.top,
         GetRValue(UI_LIGHT_BG_PRIMARY), GetGValue(UI_LIGHT_BG_PRIMARY), GetBValue(UI_LIGHT_BG_PRIMARY), 255);
+    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, DLG_RADIUS, DLG_RADIUS,
+        rcCard.left, rcCard.top, rcCard.right - rcCard.left, rcCard.bottom - rcCard.top,
+        1, GetRValue(UI_LIGHT_BORDER), GetGValue(UI_LIGHT_BORDER), GetBValue(UI_LIGHT_BORDER), 255);
 
     const MenuTexts* texts = GetMenuTexts();
 
@@ -241,10 +200,10 @@ static void RenderPresetDialog(void) {
     // ---- Input field ----
     BOOL inputHover = (g_pressedId == HIT_INPUT);
     COLORREF inputBorder = g_inputFocused ? UI_PRIMARY_COLOR : (inputHover ? UI_PRIMARY_HOVER : UI_LIGHT_BORDER);
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8,
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4,
         rcInput.left, rcInput.top, rcInput.right - rcInput.left, rcInput.bottom - rcInput.top,
-        255, 255, 255, 255);
-    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8,
+        GetRValue(UI_LIGHT_SURFACE), GetGValue(UI_LIGHT_SURFACE), GetBValue(UI_LIGHT_SURFACE), 255);
+    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4,
         rcInput.left, rcInput.top, rcInput.right - rcInput.left, rcInput.bottom - rcInput.top,
         g_inputFocused ? 2 : 1, GetRValue(inputBorder), GetGValue(inputBorder), GetBValue(inputBorder), 255);
 
@@ -253,13 +212,12 @@ static void RenderPresetDialog(void) {
         RECT rcInputText = {rcInput.left + 12, rcInput.top + 2, rcInput.right - 12, rcInput.bottom - 2};
         DrawTextSDF(g_hdcBuffer, g_inputBuf, &rcInputText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_PRIMARY);
     } else if (g_inputFocused) {
-        // Show placeholder when empty and focused
         RECT rcInputText = {rcInput.left + 12, rcInput.top + 2, rcInput.right - 12, rcInput.bottom - 2};
-        DrawTextSDF(g_hdcBuffer, L"输入分钟数...", &rcInputText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_DISABLED);
+        DrawTextSDF(g_hdcBuffer, L"1-999", &rcInputText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_DISABLED);
     }
 
-    // Cursor
-    if (g_inputFocused && g_cursorVisible && g_inputBuf[0] != L'\0') {
+    // Input cursor
+    if (g_inputFocused && g_cursorVisible) {
         HFONT hOldFont = (HFONT)SelectObject(g_hdcBuffer, hFontLabel);
         SIZE sz;
         GetTextExtentPoint32W(g_hdcBuffer, g_inputBuf, (int)wcslen(g_inputBuf), &sz);
@@ -267,7 +225,8 @@ static void RenderPresetDialog(void) {
         int cursorX = rcInput.left + 12 + sz.cx;
         int cursorY = rcInput.top + 5;
         int cursorH = rcInput.bottom - rcInput.top - 10;
-        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 1, 1, cursorX, cursorY, 2, cursorH, UI_PRIMARY_COLOR & 0xFF, (UI_PRIMARY_COLOR >> 8) & 0xFF, (UI_PRIMARY_COLOR >> 16) & 0xFF, 255);
+        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 1, 1, cursorX, cursorY, 2, cursorH,
+            UI_PRIMARY_COLOR & 0xFF, (UI_PRIMARY_COLOR >> 8) & 0xFF, (UI_PRIMARY_COLOR >> 16) & 0xFF, 255);
     }
 
     // ---- Add button ----
@@ -287,9 +246,7 @@ static void RenderPresetDialog(void) {
 
     // ---- Draw list items ----
     int visCount = GetVisibleCount();
-    int maxScroll = GetMaxScroll();
     int contentW = rcListArea.right - rcListArea.left - SCROLLBAR_W - 8;
-    int iconX = rcListArea.left + 8 + contentW - ICON_SIZE - 8 - ICON_SIZE - 8;  // trash X
 
     for (int i = 0; i < visCount && (g_scrollOffset + i) < g_timerState.presetCount; i++) {
         int idx = g_scrollOffset + i;
@@ -298,40 +255,103 @@ static void RenderPresetDialog(void) {
         BOOL isHover = (g_hoverRow == idx);
         BOOL isEditing = (g_editingIndex == idx);
 
-        // Item background: Win11-style subtle hover only
+        // Row background: subtle hover (only for non-editing rows)
         if (isHover && !isEditing) {
             FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4,
                 rcListArea.left + 4, itemY, contentW, ITEM_HEIGHT,
-                238, 238, 238, 255);
+                GetRValue(UI_LIGHT_BUTTON_HOVER), GetGValue(UI_LIGHT_BUTTON_HOVER), GetBValue(UI_LIGHT_BUTTON_HOVER), 255);
         }
 
-        // Item text
-        wchar_t itemText[32];
-        swprintf(itemText, 32, L"%d 分钟", g_timerState.presetTimes[idx]);
-        RECT rcItemText = {rcListArea.left + 14, itemY, rcListArea.left + 14 + contentW - ICON_SIZE * 2 - 24, itemY + ITEM_HEIGHT};
-        DrawTextSDF(g_hdcBuffer, itemText, &rcItemText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontItem, UI_LIGHT_TEXT_PRIMARY);
+        // 拖拽中的源行：盖一层半透明遮罩表示"正在被拖动"
+        if (g_isDraggingRow && idx == g_pressedRow) {
+            FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4,
+                rcListArea.left + 4, itemY, contentW, ITEM_HEIGHT,
+                UI_PRIMARY_COLOR & 0xFF, (UI_PRIMARY_COLOR >> 8) & 0xFF, (UI_PRIMARY_COLOR >> 16) & 0xFF, 40);
+        }
 
-        // Icons (only when not editing this row)
-        if (!isEditing) {
-            int iconY = itemY + (ITEM_HEIGHT - ICON_SIZE) / 2;
-            int pencilX = rcListArea.left + 8 + contentW - ICON_SIZE - 4 - ICON_SIZE - 4;
-            DrawPencilIcon(pencilX, iconY);
-            DrawTrashIcon(pencilX + ICON_SIZE + 8, iconY);
+        // Delete (x) button — shown on hover, right-aligned
+        if (isHover && !isEditing) {
+            int xCx = rcListArea.left + 4 + contentW - DELETE_HIT_W;
+            int xCy = itemY + (ITEM_HEIGHT - DELETE_HIT_W) / 2;
+            // (x) glyph drawn as text for crispness
+            RECT rcX = {xCx, xCy, xCx + DELETE_HIT_W, xCy + DELETE_HIT_W};
+            DrawTextSDF(g_hdcBuffer, L"\u2715", &rcX, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, UI_LIGHT_TEXT_SECONDARY);
+        }
+
+        if (isEditing) {
+            // Inline-edit row: draw a focus-bordered input cell covering the text area
+            RECT rcEditCell = {rcListArea.left + 14, itemY + 2, rcListArea.left + 4 + contentW - DELETE_HIT_W - 6, itemY + ITEM_HEIGHT - 2};
+            FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4,
+                rcEditCell.left, rcEditCell.top, rcEditCell.right - rcEditCell.left, rcEditCell.bottom - rcEditCell.top,
+                GetRValue(UI_LIGHT_SURFACE), GetGValue(UI_LIGHT_SURFACE), GetBValue(UI_LIGHT_SURFACE), 255);
+            DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4,
+                rcEditCell.left, rcEditCell.top, rcEditCell.right - rcEditCell.left, rcEditCell.bottom - rcEditCell.top,
+                2, UI_PRIMARY_COLOR & 0xFF, (UI_PRIMARY_COLOR >> 8) & 0xFF, (UI_PRIMARY_COLOR >> 16) & 0xFF, 255);
+
+            // Edit text
+            RECT rcEditText = {rcEditCell.left + 8, rcEditCell.top, rcEditCell.right - 8, rcEditCell.bottom};
+            if (g_editBuf[0] != L'\0') {
+                DrawTextSDF(g_hdcBuffer, g_editBuf, &rcEditText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontItem, UI_LIGHT_TEXT_PRIMARY);
+            }
+            // Edit cursor
+            if (g_cursorVisible) {
+                HFONT hOldFont = (HFONT)SelectObject(g_hdcBuffer, hFontItem);
+                SIZE sz;
+                GetTextExtentPoint32W(g_hdcBuffer, g_editBuf, (int)wcslen(g_editBuf), &sz);
+                SelectObject(g_hdcBuffer, hOldFont);
+                int cursorX = rcEditCell.left + 8 + sz.cx;
+                int cursorY = rcEditCell.top + 4;
+                int cursorH = rcEditCell.bottom - rcEditCell.top - 8;
+                FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 1, 1, cursorX, cursorY, 2, cursorH,
+                    UI_PRIMARY_COLOR & 0xFF, (UI_PRIMARY_COLOR >> 8) & 0xFF, (UI_PRIMARY_COLOR >> 16) & 0xFF, 255);
+            }
+        } else {
+            // Normal row: "N 分钟"
+            wchar_t itemText[32];
+            swprintf(itemText, 32, L"%d %s", g_timerState.presetTimes[idx],
+                     (g_timerState.currentLanguage == TIMER_LANG_ENGLISH) ? L"min" : L"分钟");
+            RECT rcItemText = {rcListArea.left + 14, itemY, rcListArea.left + 4 + contentW - DELETE_HIT_W - 6, itemY + ITEM_HEIGHT};
+            DrawTextSDF(g_hdcBuffer, itemText, &rcItemText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontItem, UI_LIGHT_TEXT_PRIMARY);
         }
     }
 
+    // ---- 拖拽插入线 ----
+    if (g_isDraggingRow && g_dropTargetIndex >= 0) {
+        // 算出插入线 y 坐标：找到目标索引对应的可见行顶部
+        int lineY = -1;
+        int visCount2 = GetVisibleCount();
+        int relIdx = g_dropTargetIndex - g_scrollOffset;
+        if (relIdx >= 0 && relIdx <= visCount2) {
+            lineY = rcListArea.top + 8 + relIdx * (ITEM_HEIGHT + ITEM_GAP) - ITEM_GAP / 2;
+        } else if (relIdx < 0) {
+            lineY = rcListArea.top + 8 - ITEM_GAP / 2;
+        }
+        if (lineY >= rcListArea.top && lineY <= rcListArea.bottom) {
+            FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 1, 1,
+                rcListArea.left + 6, lineY - 1, contentW - 4, 3,
+                UI_PRIMARY_COLOR & 0xFF, (UI_PRIMARY_COLOR >> 8) & 0xFF, (UI_PRIMARY_COLOR >> 16) & 0xFF, 255);
+        }
+    }
+
+    // ---- Empty-state hint inside list area ----
+    if (g_timerState.presetCount == 0) {
+        const wchar_t* emptyMsg = (g_timerState.currentLanguage == TIMER_LANG_ENGLISH)
+            ? L"No presets yet" : L"暂无预设";
+        RECT rcEmpty = {rcListArea.left, rcListArea.top, rcListArea.right - SCROLLBAR_W, rcListArea.bottom};
+        DrawTextSDF(g_hdcBuffer, emptyMsg, &rcEmpty, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontHint, UI_LIGHT_TEXT_DISABLED);
+    }
+
     // ---- Scrollbar ----
+    int maxScroll = GetMaxScroll();
     if (maxScroll > 0) {
         int sbTrackH = rcScrollbar.bottom - rcScrollbar.top;
         int thumbH = max(20, (int)(sbTrackH * (float)visCount / g_timerState.presetCount));
         int thumbRange = sbTrackH - thumbH;
         int thumbY = rcScrollbar.top + (maxScroll > 0 ? (g_scrollOffset * thumbRange / maxScroll) : 0);
 
-        // Track
         FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4,
             rcScrollbar.left, rcScrollbar.top, SCROLLBAR_W, sbTrackH,
-            224, 224, 224, 255);
-        // Thumb
+            GetRValue(UI_LIGHT_BORDER), GetGValue(UI_LIGHT_BORDER), GetBValue(UI_LIGHT_BORDER), 255);
         FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4,
             rcScrollbar.left, thumbY, SCROLLBAR_W, thumbH,
             166, 166, 166, 255);
@@ -356,7 +376,7 @@ static void RenderPresetDialog(void) {
         rcBtnCancel.left, rcBtnCancel.top, rcBtnCancel.right - rcBtnCancel.left, rcBtnCancel.bottom - rcBtnCancel.top,
         1, GetRValue(UI_LIGHT_BORDER), GetGValue(UI_LIGHT_BORDER), GetBValue(UI_LIGHT_BORDER), 255);
     RECT rcCancelT = rcBtnCancel;
-    DrawTextSDF(g_hdcBuffer, texts->cancel, &rcCancelT, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, UI_LIGHT_TEXT_SECONDARY);
+    DrawTextSDF(g_hdcBuffer, texts->cancel, &rcCancelT, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, UI_LIGHT_TEXT_PRIMARY);
 
     // ---- Hint text ----
     RECT rcHint = {rcCard.left + 20, rcBtnOK.top, rcBtnOK.left - 10, rcBtnOK.bottom};
@@ -365,7 +385,7 @@ static void RenderPresetDialog(void) {
     // ---- Inline error message below input ----
     if (g_showToast) {
         RECT rcErr = {rcInput.left, rcInput.bottom + 6, rcInput.right, rcInput.bottom + 28};
-        DrawTextSDF(g_hdcBuffer, L"预设时间不能超过 60 分钟", &rcErr, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontHint, RGB(200, 50, 50));
+        DrawTextSDF(g_hdcBuffer, texts->errorPresetMax, &rcErr, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontHint, RGB(200, 50, 50));
     }
 
     DeleteObject(hFontTitle);
@@ -415,17 +435,12 @@ static HitTestID HitTest(POINT pt) {
         RECT rcItem = {rcListArea.left + 4, itemY, rcListArea.left + 4 + contentW, itemY + ITEM_HEIGHT};
 
         if (PtInRect(&rcItem, pt)) {
-            int iconY = itemY + (ITEM_HEIGHT - ICON_SIZE) / 2;
-            int pencilX = rcListArea.left + 8 + contentW - ICON_SIZE - 4 - ICON_SIZE - 4;
-
-            // Pencil hit area
-            RECT rcPencil = {pencilX - 2, iconY - 2, pencilX + ICON_SIZE + 2, iconY + ICON_SIZE + 2};
-            if (PtInRect(&rcPencil, pt)) return HIT_ITEM_EDIT;
-
-            // Trash hit area
-            int trashX = pencilX + ICON_SIZE + 8;
-            RECT rcTrash = {trashX - 2, iconY - 2, trashX + ICON_SIZE + 2, iconY + ICON_SIZE + 2};
-            if (PtInRect(&rcTrash, pt)) return HIT_ITEM_DELETE;
+            // Delete (x) hit area on the right
+            RECT rcDelete = {rcListArea.left + 4 + contentW - DELETE_HIT_W, itemY,
+                             rcListArea.left + 4 + contentW, itemY + ITEM_HEIGHT};
+            if (PtInRect(&rcDelete, pt)) return HIT_ITEM_DELETE;
+            // Rest of the row -> inline edit
+            return HIT_ITEM_TEXT;
         }
     }
 
@@ -450,6 +465,16 @@ static void RefreshList(void) {
     UpdatePresetWindow();
 }
 
+// Rollback to the snapshot taken at WM_CREATE, then destroy the dialog.
+static void DoCancelRollback(HWND hwnd) {
+    g_timerState.presetCount = g_origPresetCount;
+    for (int i = 0; i < g_origPresetCount && i < MAX_PRESETS; i++) {
+        g_timerState.presetTimes[i] = g_origPresets[i];
+    }
+    SavePresetConfig();
+    DestroyWindow(hwnd);
+}
+
 // -----------------------------------------------------------
 // Window procedure
 // -----------------------------------------------------------
@@ -467,9 +492,11 @@ LRESULT CALLBACK PresetEditDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
             g_scrollOffset = 0;
             g_hoverRow = -1;
             g_editingIndex = -1;
-            g_hEditCtrl = NULL;
+            g_inputFocused = FALSE;
+            g_inputBuf[0] = L'\0';
+            g_editBuf[0] = L'\0';
 
-            // Backup presets for Cancel
+            // Backup presets for Cancel/Esc rollback
             g_origPresetCount = g_timerState.presetCount;
             for (int i = 0; i < g_origPresetCount && i < MAX_PRESETS; i++) {
                 g_origPresets[i] = g_timerState.presetTimes[i];
@@ -477,7 +504,7 @@ LRESULT CALLBACK PresetEditDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
 
             UpdatePresetWindow();
             SetTimer(hwnd, 2, 100, NULL);  // Main window refresh
-            SetTimer(hwnd, 3, 500, NULL);  // Cursor blink
+            SetTimer(hwnd, 3, 500, NULL);  // Cursor blink / toast
             return 0;
         }
 
@@ -490,8 +517,8 @@ LRESULT CALLBACK PresetEditDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
                     UpdateWindow(g_timerState.hMainWnd);
                 }
             } else if (wParam == 3) {
-                // Cursor blink
-                if (g_inputFocused) {
+                // Cursor blink (active in either add or edit mode)
+                if (g_inputFocused || g_editingIndex >= 0) {
                     g_cursorVisible = !g_cursorVisible;
                 }
                 // Toast timeout
@@ -529,6 +556,24 @@ LRESULT CALLBACK PresetEditDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
                 return 0;
             }
 
+            // 行拖拽排序：按下后移动超过阈值才算拖拽
+            if (g_rowPressed && !g_isDraggingRow) {
+                int dx = pt.x - g_rowPressStart.x;
+                int dy = pt.y - g_rowPressStart.y;
+                if (dx*dx + dy*dy >= DRAG_THRESHOLD * DRAG_THRESHOLD) {
+                    g_isDraggingRow = TRUE;
+                    g_dropTargetIndex = PointToDropIndex(pt.y);
+                }
+            }
+            if (g_isDraggingRow) {
+                int newDrop = PointToDropIndex(pt.y);
+                if (newDrop != g_dropTargetIndex) {
+                    g_dropTargetIndex = newDrop;
+                    UpdatePresetWindow();
+                }
+                return 0;
+            }
+
             // Hover detection
             int prevHover = g_hoverRow;
             g_hoverRow = -1;
@@ -553,11 +598,19 @@ LRESULT CALLBACK PresetEditDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
         }
 
         case WM_LBUTTONDOWN: {
-            // Dismiss toast on any click
             g_showToast = FALSE;
 
             POINT pt = {(short)LOWORD(lParam), (short)HIWORD(lParam)};
             HitTestID hit = HitTest(pt);
+
+            // 点击任何地方前，先提交当前正在编辑的行（"点击别处即生效"）
+            // 例外：点的是正在编辑的那一行本身（双击序列要继续编辑）
+            BOOL hitIsEditingRow = (hit == HIT_ITEM_TEXT && g_hoverRow == g_editingIndex);
+            if (g_editingIndex >= 0 && !hitIsEditingRow) {
+                CommitInlineEdit();
+                RefreshList();
+            }
+
             g_pressedId = hit;
 
             if (hit == HIT_SCROLLBAR && GetMaxScroll() > 0) {
@@ -569,8 +622,20 @@ LRESULT CALLBACK PresetEditDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
                 GetWindowRect(hwnd, &g_dlgStartRect);
                 SetCapture(hwnd);
             } else if (hit == HIT_INPUT) {
+                // 开头已提交行编辑，这里只需切换焦点到添加框
                 g_inputFocused = TRUE;
                 g_cursorVisible = TRUE;
+            } else if (hit == HIT_ITEM_TEXT) {
+                // 行被按下：先记录，等松开时判定点击 vs 拖拽（拖拽阈值在 MOUSEMOVE 里判定）
+                // 正在编辑的行不响应拖拽（避免编辑中误触排序）
+                if (g_hoverRow >= 0 && g_hoverRow < g_timerState.presetCount && g_hoverRow != g_editingIndex) {
+                    g_rowPressed = TRUE;
+                    g_pressedRow = g_hoverRow;
+                    g_rowPressStart = pt;
+                    g_isDraggingRow = FALSE;
+                    g_dropTargetIndex = -1;
+                    SetCapture(hwnd);
+                }
             }
 
             UpdatePresetWindow();
@@ -582,77 +647,61 @@ LRESULT CALLBACK PresetEditDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
             if (g_draggingDlg) { g_draggingDlg = FALSE; ReleaseCapture(); }
 
             POINT pt = {(short)LOWORD(lParam), (short)HIWORD(lParam)};
+
+            // 拖拽排序结束：执行移动
+            if (g_isDraggingRow) {
+                if (g_pressedRow >= 0 && g_dropTargetIndex >= 0 &&
+                    g_dropTargetIndex <= g_timerState.presetCount) {
+                    MovePresetTime(g_pressedRow, g_dropTargetIndex);
+                    RefreshList();
+                }
+                g_isDraggingRow = FALSE;
+                g_rowPressed = FALSE;
+                g_pressedRow = -1;
+                g_dropTargetIndex = -1;
+                ReleaseCapture();
+                UpdatePresetWindow();
+                return 0;
+            }
+            if (g_rowPressed) {
+                // 未超过阈值 = 普通点击（留给 WM_LBUTTONDBLCLK 处理编辑）
+                g_rowPressed = FALSE;
+                g_pressedRow = -1;
+                ReleaseCapture();
+                g_pressedId = HIT_NONE;
+                UpdatePresetWindow();
+                return 0;
+            }
+
             HitTestID hit = HitTest(pt);
 
             if (hit == g_pressedId && hit != HIT_NONE) {
                 if (hit == HIT_BTN_ADD) {
+                    if (g_editingIndex >= 0) { CommitInlineEdit(); }
                     int minutes = _wtoi(g_inputBuf);
-                    if (minutes > 0 && minutes <= 60) {
+                    if (minutes >= PRESET_MIN_MINUTES && minutes <= PRESET_MAX_MINUTES) {
                         AddPresetTime(minutes);
                         g_inputBuf[0] = L'\0';
                         RefreshList();
                         SetFocus(hwnd);
-                    } else if (minutes > 60) {
-                        // Value exceeds 60 — show error
+                    } else if (g_editBuf[0] != L'\0' || g_inputBuf[0] != L'\0') {
                         g_showToast = TRUE;
                         g_toastStart = GetTickCount();
                     }
-                    // Empty input or 0: silently do nothing
                 } else if (hit == HIT_ITEM_DELETE) {
+                    if (g_editingIndex >= 0) { CancelInlineEdit(); }
                     if (g_hoverRow >= 0 && g_hoverRow < g_timerState.presetCount) {
                         DeletePresetTime(g_hoverRow);
+                        g_hoverRow = -1;
                         RefreshList();
                     }
-                } else if (hit == HIT_ITEM_EDIT) {
-                    if (g_hoverRow >= 0 && g_hoverRow < g_timerState.presetCount) {
-                        // Clean up any stale inline edit
-                        if (g_hEditCtrl && IsWindow(g_hEditCtrl)) {
-                            DestroyWindow(g_hEditCtrl);
-                        }
-                        g_hEditCtrl = NULL;
-                        g_editingIndex = g_hoverRow;
-                        g_editOriginalMinutes = g_timerState.presetTimes[g_hoverRow];
-
-                        // Create temporary EDIT control
-                        int visCount = GetVisibleCount();
-                        int contentW = rcListArea.right - rcListArea.left - SCROLLBAR_W - 8;
-                        int rowIdx = g_hoverRow - g_scrollOffset;
-                        int itemY = rcListArea.top + 8 + rowIdx * (ITEM_HEIGHT + ITEM_GAP);
-
-                        RECT rcClient; GetClientRect(hwnd, &rcClient);
-                        RECT rcEdit = {rcListArea.left + 14, itemY + 2, rcListArea.left + 14 + contentW - ICON_SIZE * 2 - 24, itemY + ITEM_HEIGHT - 2};
-
-                        g_hEditCtrl = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
-                            WS_CHILD | WS_VISIBLE | ES_NUMBER | ES_AUTOHSCROLL,
-                            rcEdit.left, rcEdit.top, rcEdit.right - rcEdit.left, rcEdit.bottom - rcEdit.top,
-                            hwnd, NULL, GetModuleHandle(NULL), NULL);
-
-                        if (g_hEditCtrl) {
-                            wchar_t buf[16];
-                            swprintf(buf, 16, L"%d", g_timerState.presetTimes[g_hoverRow]);
-                            SetWindowTextW(g_hEditCtrl, buf);
-                            SendMessageW(g_hEditCtrl, EM_SETSEL, 0, -1);
-                            g_origEditProc = (WNDPROC)SetWindowLongPtrW(g_hEditCtrl, GWLP_WNDPROC, (LONG_PTR)InlineEditSubclass);
-                            SetFocus(g_hEditCtrl);
-                        } else {
-                            g_editingIndex = -1;
-                        }
-
-                        UpdatePresetWindow();
-                    }
                 } else if (hit == HIT_BTN_OK) {
-                    // Save and close
+                    if (g_editingIndex >= 0) { CommitInlineEdit(); }
                     SavePresetConfig();
                     DestroyWindow(hwnd);
                     return 0;
                 } else if (hit == HIT_BTN_CANCEL) {
-                    // Restore original presets
-                    g_timerState.presetCount = g_origPresetCount;
-                    for (int i = 0; i < g_origPresetCount && i < MAX_PRESETS; i++) {
-                        g_timerState.presetTimes[i] = g_origPresets[i];
-                    }
-                    SavePresetConfig();
-                    DestroyWindow(hwnd);
+                    DoCancelRollback(hwnd);
                     return 0;
                 }
             }
@@ -662,9 +711,27 @@ LRESULT CALLBACK PresetEditDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
             return 0;
         }
 
+        case WM_LBUTTONDBLCLK: {
+            // 双击行：进入就地编辑
+            POINT pt = {(short)LOWORD(lParam), (short)HIWORD(lParam)};
+            HitTestID hit = HitTest(pt);
+            if (hit == HIT_ITEM_TEXT) {
+                // DBLCLK 前会有一次 DOWN/UP，重置待拖拽状态
+                g_rowPressed = FALSE;
+                g_pressedRow = -1;
+                g_isDraggingRow = FALSE;
+                g_dropTargetIndex = -1;
+                if (g_hoverRow >= 0 && g_hoverRow < g_timerState.presetCount) {
+                    StartInlineEdit(g_hoverRow);
+                    SetFocus(hwnd);
+                    UpdatePresetWindow();
+                }
+            }
+            return 0;
+        }
+
         case WM_MOUSEWHEEL: {
             int delta = GET_WHEEL_DELTA_WPARAM(wParam);
-            int visCount = GetVisibleCount();
             int maxScroll = GetMaxScroll();
 
             if (delta > 0 && g_scrollOffset > 0) {
@@ -677,44 +744,58 @@ LRESULT CALLBACK PresetEditDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
             return 0;
         }
 
-        case WM_COMMAND: {
-            int cmd = LOWORD(wParam);
-            int code = HIWORD(wParam);
-
-            // EDIT control notifications (inline edit)
-            if (g_hEditCtrl && (HWND)lParam == g_hEditCtrl) {
-                if (code == EN_UPDATE) {
-                    // Auto-confirm on Enter
+        case WM_CHAR: {
+            // ---- Inline row edit mode ----
+            if (g_editingIndex >= 0) {
+                if (wParam == VK_RETURN) {
+                    CommitInlineEdit();
+                    RefreshList();
+                    return 0;
+                } else if (wParam == VK_ESCAPE) {
+                    CancelInlineEdit();
+                    UpdatePresetWindow();
+                    return 0;
+                } else if (wParam == VK_BACK) {
+                    int len = (int)wcslen(g_editBuf);
+                    if (len > 0) {
+                        g_editBuf[len - 1] = L'\0';
+                        g_cursorVisible = TRUE;
+                        UpdatePresetWindow();
+                    }
+                    return 0;
+                } else if (wParam >= L'0' && wParam <= L'9') {
+                    int len = (int)wcslen(g_editBuf);
+                    if (len < 3) {  // up to 3 digits (max 999)
+                        g_editBuf[len] = (wchar_t)wParam;
+                        g_editBuf[len + 1] = L'\0';
+                        g_cursorVisible = TRUE;
+                        UpdatePresetWindow();
+                    }
+                    return 0;
                 }
+                return 0;
             }
 
-            return 0;
-        }
-
-        case WM_CHAR: {
-            // Main input field
-            if (g_inputFocused && g_editingIndex < 0) {
+            // ---- Top "add" field mode ----
+            if (g_inputFocused) {
                 if (wParam == VK_RETURN) {
-                    // Submit: same as Add button
                     int minutes = _wtoi(g_inputBuf);
-                    if (minutes > 0 && minutes <= 60) {
+                    if (minutes >= PRESET_MIN_MINUTES && minutes <= PRESET_MAX_MINUTES) {
                         AddPresetTime(minutes);
                         g_inputBuf[0] = L'\0';
                         RefreshList();
-                    } else if (minutes > 60) {
-                        // Value exceeds 60 — show error
+                    } else if (g_inputBuf[0] != L'\0') {
                         g_showToast = TRUE;
                         g_toastStart = GetTickCount();
                     }
-                    // Empty input or 0: silently do nothing
                     return 0;
                 } else if (wParam == VK_ESCAPE) {
                     g_inputFocused = FALSE;
                     g_cursorVisible = FALSE;
+                    g_inputBuf[0] = L'\0';
                     UpdatePresetWindow();
                     return 0;
                 } else if (wParam == VK_BACK) {
-                    // Backspace
                     int len = (int)wcslen(g_inputBuf);
                     if (len > 0) {
                         g_inputBuf[len - 1] = L'\0';
@@ -722,48 +803,12 @@ LRESULT CALLBACK PresetEditDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
                     }
                     return 0;
                 } else if (wParam >= L'0' && wParam <= L'9') {
-                    // Digit input, max 60
                     int len = (int)wcslen(g_inputBuf);
-                    if (len < 2) {
+                    if (len < 3) {  // up to 3 digits (max 999)
                         g_inputBuf[len] = (wchar_t)wParam;
                         g_inputBuf[len + 1] = L'\0';
-                        // Reject if value exceeds 60
-                        int val = _wtoi(g_inputBuf);
-                        if (val > 60) {
-                            g_inputBuf[len] = L'\0'; // undo
-                            g_showToast = TRUE;
-                            g_toastStart = GetTickCount();
-                        } else {
-                            UpdatePresetWindow();
-                        }
+                        UpdatePresetWindow();
                     }
-                    return 0;
-                }
-            }
-
-            // Inline edit control
-            if (g_hEditCtrl && GetFocus() == g_hEditCtrl) {
-                if (wParam == VK_RETURN) {
-                    // Confirm edit
-                    wchar_t buf[16];
-                    GetWindowTextW(g_hEditCtrl, buf, 16);
-                    int minutes = _wtoi(buf);
-                    if (minutes > 0 && minutes <= 999) {
-                        ModifyPresetTime(g_editingIndex, minutes);
-                    }
-                    DestroyWindow(g_hEditCtrl);
-                    g_hEditCtrl = NULL;
-                    g_editingIndex = -1;
-                    SetFocus(hwnd);
-                    RefreshList();
-                    return 0;
-                } else if (wParam == VK_ESCAPE) {
-                    // Cancel edit
-                    DestroyWindow(g_hEditCtrl);
-                    g_hEditCtrl = NULL;
-                    g_editingIndex = -1;
-                    SetFocus(hwnd);
-                    UpdatePresetWindow();
                     return 0;
                 }
             }
@@ -771,56 +816,44 @@ LRESULT CALLBACK PresetEditDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
         }
 
         case WM_KILLFOCUS: {
-            // Unfocus the input field if focus moves elsewhere
+            // Auto-commit inline edit if the dialog loses focus entirely
+            if (g_editingIndex >= 0) {
+                CommitInlineEdit();
+                RefreshList();
+            }
             if (g_inputFocused) {
                 g_inputFocused = FALSE;
                 g_cursorVisible = FALSE;
                 UpdatePresetWindow();
-            }
-            // If inline edit control loses focus (to something other than the dialog itself),
-            // confirm the edit
-            if (g_hEditCtrl && g_editingIndex >= 0 && IsWindow(g_hEditCtrl)) {
-                HWND hFocus = (HWND)wParam;
-                // Only auto-confirm if focus moved outside the edit control and not to dialog itself
-                if (hFocus != g_hEditCtrl && hFocus != hwnd) {
-                    wchar_t buf[16];
-                    GetWindowTextW(g_hEditCtrl, buf, 16);
-                    int minutes = _wtoi(buf);
-                    if (minutes > 0 && minutes <= 999) {
-                        ModifyPresetTime(g_editingIndex, minutes);
-                    }
-                    DestroyWindow(g_hEditCtrl);
-                    // Don't set g_hEditCtrl to NULL here — the WM_DESTROY of the edit control
-                    // (via subclass) already handles cleanup. Prevents double-destroy.
-                }
             }
             return 0;
         }
 
         case WM_KEYDOWN: {
             if (wParam == VK_ESCAPE) {
+                if (g_editingIndex >= 0) {
+                    // Escape while editing a row: cancel that edit only
+                    CancelInlineEdit();
+                    UpdatePresetWindow();
+                    return 0;
+                }
+                // No active edit: Escape closes the dialog WITH rollback
+                DoCancelRollback(hwnd);
+                return 0;
+            }
+            if (wParam == VK_RETURN) {
+                // Enter with no field focused: behave like OK
+                if (g_editingIndex >= 0) { CommitInlineEdit(); }
+                SavePresetConfig();
                 DestroyWindow(hwnd);
                 return 0;
             }
             break;
         }
 
-        case WM_CTLCOLOREDIT: {
-            HDC hdcEdit = (HDC)wParam;
-            HWND hEdit = (HWND)lParam;
-            // Set white background and black text for EDIT controls
-            SetBkColor(hdcEdit, RGB(255, 255, 255));
-            SetTextColor(hdcEdit, UI_LIGHT_TEXT_PRIMARY);
-            // Return a white brush
-            static HBRUSH hWhiteBrush = NULL;
-            if (!hWhiteBrush) hWhiteBrush = CreateSolidBrush(RGB(255, 255, 255));
-            return (LRESULT)hWhiteBrush;
-        }
-
         case WM_DESTROY: {
             KillTimer(hwnd, 2);
             KillTimer(hwnd, 3);
-            if (g_hEditCtrl && IsWindow(g_hEditCtrl)) { DestroyWindow(g_hEditCtrl); g_hEditCtrl = NULL; }
             if (g_hbmBuffer) DeleteObject(g_hbmBuffer);
             if (g_hdcBuffer) DeleteDC(g_hdcBuffer);
             g_hPresetDialog = NULL;
@@ -853,7 +886,7 @@ void CreatePresetEditDialog(void) {
         wc.lpszClassName = L"ModernPresetDialogClass";
         wc.hCursor = LoadCursor(NULL, IDC_ARROW);
         wc.hbrBackground = NULL;
-        wc.style = CS_HREDRAW | CS_VREDRAW;
+        wc.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
         if (RegisterClassW(&wc)) {
             classRegistered = TRUE;
         }

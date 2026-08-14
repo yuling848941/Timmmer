@@ -153,15 +153,17 @@ static void StartEditing(EditField field) {
     g_editBuffer[0] = L'\0';
     g_editCursorPos = 0;
     g_cursorVisible = TRUE;
-    SetTimer(g_hSetTimeDialog, g_cursorTimerId, CURSOR_BLINK_MS, NULL);
+    g_cursorTimerId = SetTimer(g_hSetTimeDialog, 1, CURSOR_BLINK_MS, NULL); // 保存实际计时器ID，避免置零后闪烁失效
     RenderDialogUI();
     RedrawDialog();
 }
 
 static void StopEditing(BOOL accept) {
     if (g_editingField == EDIT_NONE) return;
-    KillTimer(g_hSetTimeDialog, g_cursorTimerId);
-    g_cursorTimerId = 0;
+    if (g_cursorTimerId) {
+        KillTimer(g_hSetTimeDialog, g_cursorTimerId);
+        g_cursorTimerId = 0;
+    }
     if (accept && wcslen(g_editBuffer) > 0) {
         int v = wcstol(g_editBuffer, NULL, 10);
         int max = GetEditFieldMax(g_editingField);
@@ -229,9 +231,12 @@ static void RenderDialogUI(void) {
     int S = DLG_SHADOW;
     int cardX = S, cardY = S, cardW = DLG_WIDTH - 2 * S, cardH = DLG_HEIGHT - 2 * S;
 
-    // Solid panel: fill entire window (system provides drop shadow via DWM)
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8, 0, 0, DLG_WIDTH, DLG_HEIGHT,
+    // Panel: soft shadow + fill + thin border (Win11 native dialog style)
+    DrawSoftShadowSDF(g_pBits, DLG_WIDTH, DLG_HEIGHT, cardX, cardY, cardW, cardH, 8, S, 3, 0.08f);
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8, cardX, cardY, cardW, cardH,
         GetRValue(UI_LIGHT_BG_PRIMARY), GetGValue(UI_LIGHT_BG_PRIMARY), GetBValue(UI_LIGHT_BG_PRIMARY), 255);
+    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8, cardX, cardY, cardW, cardH,
+        1, GetRValue(UI_LIGHT_BORDER), GetGValue(UI_LIGHT_BORDER), GetBValue(UI_LIGHT_BORDER), 255);
 
     const MenuTexts* texts = GetMenuTexts();
 

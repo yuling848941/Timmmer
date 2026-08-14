@@ -62,8 +62,8 @@ static RECT rcInputBox = {DLG_SHADOW + 50, DLG_SHADOW + 220, DLG_SHADOW + 400, D
 static RECT rcBrowseBtn = {DLG_SHADOW + 410, DLG_SHADOW + 220, DLG_SHADOW + 450, DLG_SHADOW + 255};
 
 // Button layout
-static RECT rcBtnOk     = {DLG_SHADOW + 310, DLG_SHADOW + 320, DLG_SHADOW + 390, DLG_SHADOW + 360};
-static RECT rcBtnCancel = {DLG_SHADOW + 400, DLG_SHADOW + 320, DLG_SHADOW + 460, DLG_SHADOW + 360};
+static RECT rcBtnOk     = {DLG_SHADOW + 310, DLG_SHADOW + 297, DLG_SHADOW + 390, DLG_SHADOW + 333};
+static RECT rcBtnCancel = {DLG_SHADOW + 400, DLG_SHADOW + 297, DLG_SHADOW + 460, DLG_SHADOW + 333};
 
 // ============================================
 // Drawing Helpers
@@ -96,10 +96,16 @@ static void DrawSwitchWin11(int x, int y, BOOL isOn) {
 static void RenderDialogUI() {
     memset(g_pBits, 0, DLG_WIDTH * DLG_HEIGHT * 4);
 
-    // Solid panel: fill entire window (system provides drop shadow via DWM)
+    // Panel: soft shadow + fill + thin border (Win11 native dialog style)
     RECT rcCard = {DLG_SHADOW, DLG_SHADOW, DLG_WIDTH - DLG_SHADOW, DLG_HEIGHT - DLG_SHADOW};
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, DLG_RADIUS, DLG_RADIUS, 0, 0, DLG_WIDTH, DLG_HEIGHT,
+    DrawSoftShadowSDF(g_pBits, DLG_WIDTH, DLG_HEIGHT, rcCard.left, rcCard.top,
+        rcCard.right - rcCard.left, rcCard.bottom - rcCard.top, DLG_RADIUS, DLG_SHADOW, 3, 0.08f);
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, DLG_RADIUS, DLG_RADIUS,
+        rcCard.left, rcCard.top, rcCard.right - rcCard.left, rcCard.bottom - rcCard.top,
         GetRValue(UI_LIGHT_BG_PRIMARY), GetGValue(UI_LIGHT_BG_PRIMARY), GetBValue(UI_LIGHT_BG_PRIMARY), 255);
+    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, DLG_RADIUS, DLG_RADIUS,
+        rcCard.left, rcCard.top, rcCard.right - rcCard.left, rcCard.bottom - rcCard.top,
+        1, GetRValue(UI_LIGHT_BORDER), GetGValue(UI_LIGHT_BORDER), GetBValue(UI_LIGHT_BORDER), 255);
 
     const MenuTexts* texts = GetMenuTexts();
 

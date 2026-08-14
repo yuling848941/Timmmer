@@ -9,9 +9,6 @@
 #include <string.h>
 #include <stdlib.h>  // for abs()
 
-// 上一次渲染的时间字符串缓存
-static char g_lastTimeStr[32] = {0};
-
 // UI 渲染功能
 void UpdateDisplay(HDC hdc) {
     char timeStr[32];
@@ -81,89 +78,6 @@ void UpdateDisplay(HDC hdc) {
     if (oldFont) {
         SelectObject(hdc, oldFont);
     }
-}
-
-/**
- * @brief 使用预渲染数字位图渲染时间（优化版）
- *
- * 通过预渲染的数字位图和脏矩形检测，
- * 只重绘变化的数字区域，大幅减少 GDI 调用。
- */
-void UpdateDisplayOptimized(HDC hdc) {
-    char timeStr[32];
-    FormatTimeCustom(g_timerState.seconds, timeStr);
-
-    // 如果时间字符串未变化，跳过渲染
-    if (strcmp(timeStr, g_lastTimeStr) == 0) {
-        return;
-    }
-
-    // 计算字体大小
-    int charCount = strlen(timeStr);
-    int fontSize = CalculateFontSize(g_timerState.windowWidth, g_timerState.windowHeight, charCount);
-
-    // 确保数字缓存已构建
-    BuildDigitCache(fontSize);
-
-    // 计算文本总宽度以确定居中位置
-    int totalWidth = 0;
-    for (int i = 0; timeStr[i] != '\0'; i++) {
-        if (timeStr[i] >= '0' && timeStr[i] <= '9') {
-            totalWidth += 20; // 估算数字宽度
-        } else if (timeStr[i] == ':') {
-            totalWidth += 12;
-        } else if (timeStr[i] == '.') {
-            totalWidth += 8;
-        }
-    }
-
-    // 起始 X 位置（居中）
-    int startX = (g_timerState.windowWidth - totalWidth) / 2;
-    int centerY = g_timerState.windowHeight / 2 + fontSize / 2;
-
-    // 逐个绘制数字
-    int xPos = startX;
-    for (int i = 0; timeStr[i] != '\0'; i++) {
-        HBITMAP hbmDigit = NULL;
-        int digitWidth = 20;
-
-        if (timeStr[i] >= '0' && timeStr[i] <= '9') {
-            hbmDigit = g_timerState.hbmDigitCache[timeStr[i] - '0'];
-        } else if (timeStr[i] == ':') {
-            hbmDigit = g_timerState.hbmColonCache;
-            digitWidth = 12;
-        } else if (timeStr[i] == '.') {
-            hbmDigit = g_timerState.hbmDotCache;
-            digitWidth = 8;
-        }
-
-        if (hbmDigit) {
-            // 创建内存 DC 并绘制位图
-            HDC hdcMem = CreateCompatibleDC(hdc);
-            HBITMAP oldBmp = (HBITMAP)SelectObject(hdcMem, hbmDigit);
-
-            // 获取位图尺寸
-            BITMAP bmpInfo;
-            GetObject(hbmDigit, sizeof(BITMAP), &bmpInfo);
-
-            // 使用 AlphaBlend 绘制（需要 msimg32.lib）
-            // 这里简化使用 BitBlt + 透明色键
-            BLENDFUNCTION blend = {AC_SRC_OVER, 0, 128, AC_SRC_ALPHA};
-
-            // 绘制到位图
-            AlphaBlend(hdc, xPos, centerY - bmpInfo.bmHeight / 2,
-                      bmpInfo.bmWidth, bmpInfo.bmHeight,
-                      hdcMem, 0, 0, bmpInfo.bmWidth, bmpInfo.bmHeight, blend);
-
-            SelectObject(hdcMem, oldBmp);
-            DeleteDC(hdcMem);
-        }
-
-        xPos += digitWidth + 2; // 字符间距
-    }
-
-    // 更新缓存
-    strcpy(g_lastTimeStr, timeStr);
 }
 
 // 字体管理 - 现在使用新的懒加载字体系统
@@ -343,9 +257,18 @@ void TimerTick(HWND hwnd) {
                 }
             }
         } else {
-            // 普通模式：每秒减 1
-            if (g_timerState.seconds > 0) {
-                g_timerState.seconds--;
+            // 普通模式：基于实际经过时间计算，避免 WM_TIMER 消息延迟导致计时变慢
+            DWORD currentTime = (DWORD)GetTickCount64();
+            DWORD elapsed = currentTime - g_timerState.startTime;
+            int elapsedSeconds = (int)(elapsed / 1000);
+
+            if (elapsedSeconds > 0) {
+                g_timerState.seconds -= elapsedSeconds;
+                g_timerState.startTime = currentTime - (elapsed % 1000); // 保持余量精度
+
+                if (g_timerState.seconds < 0) {
+                    g_timerState.seconds = 0;
+                }
                 // 如果减到 0，立即设置时间到达标志
                 if (g_timerState.seconds == 0) {
                     g_timerState.isTimeUp = TRUE;
@@ -379,6 +302,11 @@ void TimerTick(HWND hwnd) {
             g_timerState.startTime = (DWORD)GetTickCount64();
             int interval = g_timerState.showMilliseconds ? 50 : 1000;
             g_timerState.timerId = SetTimer(hwnd, 1, interval, NULL);
+            if (g_timerState.timerId == 0) {
+                // SetTimer 失败：无法驱动正计时，停止运行
+                g_timerState.isRunning = FALSE;
+                return;
+            }
 
             // 播放超时提示音（语音或系统提示音）
             if (g_timerState.enableAudioAlert && !PlayTimeoutAlert()) {

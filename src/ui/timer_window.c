@@ -58,9 +58,9 @@ HWND CreateTimerWindow(HINSTANCE hInstance, int nCmdShow) {
     DWORD exStyle = WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW;
     DWORD style = WS_POPUP;
 
-    if (g_timerState.transparentBackground) {
-        exStyle &= ~WS_EX_TRANSPARENT;
-    }
+    // 透明背景模式同样需要接收鼠标交互（拖拽/缩放），因此不设置 WS_EX_TRANSPARENT 点击穿透
+    // （原代码 exStyle &= ~WS_EX_TRANSPARENT 为冗余操作：exStyle 初始值并不包含该标志）
+    (void)exStyle;
 
     HWND hwnd = CreateWindowExW(
         exStyle,
@@ -178,9 +178,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 
         case WM_TIMER: {
             if (wParam == 1) {
-                // 帧率智能控制：根据窗口可见性决定是否渲染
+                // 计时逻辑必须始终执行：即使窗口隐藏/最小化，倒计时也要继续走
+                TimerTick(hwnd);
+
+                // 帧率智能控制：窗口不可见时不渲染，只更新计时
                 if (IsWindowVisible(hwnd) && !g_timerState.isMinimized) {
-                    TimerTick(hwnd);
 
                     // 检查窗口是否在后台（无焦点且不是前台窗口）
                     HWND foregroundWnd = GetForegroundWindow();

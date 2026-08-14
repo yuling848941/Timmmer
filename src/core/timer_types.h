@@ -239,6 +239,7 @@ typedef struct {
     const wchar_t* factoryReset;
     // Hint
     const wchar_t* doubleClickHint;
+    const wchar_t* errorPresetMax;
 } MenuTexts;
 
 // 全局状态结构
@@ -302,6 +303,7 @@ typedef struct {
     // 预设时间相关
     int presetTimes[10];  // 最多10个预设时间（分钟）
     int presetCount;      // 当前预设时间数量
+    int currentPresetIndex; // 双击循环切换时当前选中的预设索引（-1=未选中）
 
     // 字体大小计算缓存
     int cachedFontSize;         // 缓存的字体大小结果

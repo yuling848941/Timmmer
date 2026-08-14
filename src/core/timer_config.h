@@ -44,6 +44,7 @@ void LoadPresetConfig(void);
 void AddPresetTime(int minutes);
 void DeletePresetTime(int index);
 void ModifyPresetTime(int index, int newMinutes);
+void MovePresetTime(int fromIndex, int toIndex);
 int GetPresetCount(void);
 int GetPresetTime(int index);
 void CycleToNextPresetTime(void);

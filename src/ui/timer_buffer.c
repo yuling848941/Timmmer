@@ -159,6 +159,20 @@ void BuildDigitCache(int fontSize) {
 // 保存 DIB 位图的像素指针
 static void* g_layeredBufferBits = NULL;
 
+// 分层窗口"空像素"标记：alpha=0，RGB=(1,1,1)
+// 使用 RGB(1,1,1) 而非纯黑 (0,0,0)，避免黑色字体被误判为透明而消失
+#define LAYERED_EMPTY_PIXEL 0x00010101
+
+// 将分层窗口缓冲区填充为"空"标记
+static void FillLayeredBufferEmpty(int width, int height) {
+    if (!g_layeredBufferBits || width <= 0 || height <= 0) return;
+    DWORD* p = (DWORD*)g_layeredBufferBits;
+    int count = width * height;
+    for (int i = 0; i < count; i++) {
+        p[i] = LAYERED_EMPTY_PIXEL;
+    }
+}
+
 void CleanupLayeredBuffer(void) {
     if (g_timerState.hbmLayeredBuffer) {
         DeleteObject(g_timerState.hbmLayeredBuffer);
@@ -208,7 +222,7 @@ void UpdateLayeredWindow_Render(void) {
             if (g_timerState.hbmLayeredBuffer) {
                 SelectObject(g_timerState.hdcLayeredBuffer, g_timerState.hbmLayeredBuffer);
                 if (g_layeredBufferBits) {
-                    memset(g_layeredBufferBits, 0, width * height * 4);
+                    FillLayeredBufferEmpty(width, height);
                 }
             }
             g_timerState.layeredBufferSize.cx = width;
@@ -224,7 +238,7 @@ void UpdateLayeredWindow_Render(void) {
     HDC hdcMem = g_timerState.hdcLayeredBuffer;
 
     if (g_layeredBufferBits) {
-        memset(g_layeredBufferBits, 0, width * height * 4);
+        FillLayeredBufferEmpty(width, height);
     }
 
     SetTextColor(hdcMem, g_timerState.fontColor);
@@ -240,10 +254,7 @@ void UpdateLayeredWindow_Render(void) {
             for (int x = 0; x < width; x++) {
                 int idx = y * width + x;
                 DWORD pixel = pixels[idx];
-                BYTE b = (pixel >> 0) & 0xFF;
-                BYTE g = (pixel >> 8) & 0xFF;
-                BYTE r = (pixel >> 16) & 0xFF;
-                if (r != 0 || g != 0 || b != 0) {
+                if (pixel != LAYERED_EMPTY_PIXEL) {
                     pixels[idx] = (pixel & 0x00FFFFFF) | 0xFF000000;
                 }
             }

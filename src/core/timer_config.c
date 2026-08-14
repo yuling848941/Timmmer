@@ -101,7 +101,8 @@ static const MenuTexts g_menuTexts[2] = {
         L"预设列表:",
         // 恢复出厂设置
         L"恢复出厂设置",
-        L"提示：双击主窗口可快速切换预设时间"
+        L"提示：点击数字可直接编辑，悬停显示删除按钮",
+        L"预设时间需在 1-999 分钟之间"
     },
     // 英文
     {
@@ -165,7 +166,8 @@ static const MenuTexts g_menuTexts[2] = {
         L"Preset List:",
         // Factory Reset
         L"Factory Reset",
-        L"Tip: Double-click main window to cycle presets"
+        L"Tip: Click the number to edit, hover to show delete",
+        L"Preset must be between 1 and 999 minutes"
     }
 };
 
@@ -441,10 +443,13 @@ void LoadPresetConfig(void) {
             g_timerState.presetTimes[1] = 15;
             g_timerState.presetTimes[2] = 20;
     }
+
+    // 双击循环切换的索引初始化为"未选中"
+    g_timerState.currentPresetIndex = -1;
 }
 
 void AddPresetTime(int minutes) {
-    if (g_timerState.presetCount < 10 && minutes > 0) {
+    if (g_timerState.presetCount < 10 && minutes >= 1 && minutes <= 999) { // 与对话框校验上限 999 保持一致
         g_timerState.presetTimes[g_timerState.presetCount] = minutes;
         g_timerState.presetCount++;
         SavePresetConfig();
@@ -469,6 +474,29 @@ void ModifyPresetTime(int index, int newMinutes) {
     }
 }
 
+void MovePresetTime(int fromIndex, int toIndex) {
+    int n = g_timerState.presetCount;
+    if (fromIndex < 0 || fromIndex >= n) return;
+    if (toIndex < 0) toIndex = 0;
+    if (toIndex >= n) toIndex = n - 1;
+    if (fromIndex == toIndex) return;
+
+    int value = g_timerState.presetTimes[fromIndex];
+    if (fromIndex < toIndex) {
+        // 向后移：中间元素前移
+        for (int i = fromIndex; i < toIndex; i++) {
+            g_timerState.presetTimes[i] = g_timerState.presetTimes[i + 1];
+        }
+    } else {
+        // 向前移：中间元素后移
+        for (int i = fromIndex; i > toIndex; i--) {
+            g_timerState.presetTimes[i] = g_timerState.presetTimes[i - 1];
+        }
+    }
+    g_timerState.presetTimes[toIndex] = value;
+    SavePresetConfig();
+}
+
 int GetPresetCount(void) {
     return g_timerState.presetCount;
 }
@@ -485,31 +513,18 @@ void CycleToNextPresetTime(void) {
     if (g_timerState.presetCount == 0) {
         return; // 没有预设时间
     }
-    
-    // 获取当前计时器的时间（秒）
-    int currentSeconds = g_timerState.seconds;
-    int currentMinutes = currentSeconds / 60;
-    
-    // 查找当前时间在预设时间中的位置
-    int currentIndex = -1;
-    for (int i = 0; i < g_timerState.presetCount; i++) {
-        if (g_timerState.presetTimes[i] == currentMinutes) {
-            currentIndex = i;
-            break;
-        }
-    }
-    
-    // 切换到下一个预设时间
+
+    // 直接基于索引循环，避免靠"值反查"导致的重复值卡死问题
     int nextIndex;
-    if (currentIndex == -1) {
-        // 当前时间不在预设时间中，切换到第一个预设时间
+    if (g_timerState.currentPresetIndex < 0 ||
+        g_timerState.currentPresetIndex >= g_timerState.presetCount) {
+        // 首次或索引失效：从第一个开始
         nextIndex = 0;
     } else {
-        // 循环到下一个预设时间
-        nextIndex = (currentIndex + 1) % g_timerState.presetCount;
+        nextIndex = (g_timerState.currentPresetIndex + 1) % g_timerState.presetCount;
     }
-    
-    // 应用新的预设时间
+
+    g_timerState.currentPresetIndex = nextIndex;
     int newMinutes = g_timerState.presetTimes[nextIndex];
     SetTimerSeconds(newMinutes * 60);
 }

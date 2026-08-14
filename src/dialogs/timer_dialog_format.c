@@ -1,3 +1,8 @@
+/*
+ * 遗留兼容层：独立"时间格式"对话框已由 timer_dialog_integrated.c 的整合设置对话框取代。
+ * ShowFormatDialog() 直接转调 ShowIntegratedDialog()；
+ * CreateFormatDialog()/FormatDialogProc() 仅保留以防外部引用，不再被主程序调用。
+ */
 #include "timer_dialog_internal.h"
 
 static HWND g_hFormatHoverBtn = NULL;
@@ -272,19 +277,23 @@ LRESULT CALLBACK FormatDialogProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lP
             break;
         }
 
-        // 设置静态文本控件背景色
+        // 设置静态文本控件背景色（使用缓存刷子，避免每次调用创建导致 GDI 泄漏）
         case WM_CTLCOLORSTATIC: {
+            static HBRUSH hBrush = NULL;
+            if (!hBrush) hBrush = CreateSolidBrush(UI_LIGHT_BG_PRIMARY);
             HDC hdcStatic = (HDC)wParam;
             SetTextColor(hdcStatic, UI_LIGHT_TEXT_PRIMARY);
             SetBkColor(hdcStatic, UI_LIGHT_BG_PRIMARY);
-            return (LRESULT)CreateSolidBrush(UI_LIGHT_BG_PRIMARY);
+            return (LRESULT)hBrush;
         }
 
-        // 设置按钮控件背景色
+        // 设置按钮控件背景色（使用缓存刷子，避免 GDI 泄漏）
         case WM_CTLCOLORBTN: {
+            static HBRUSH hBrush = NULL;
+            if (!hBrush) hBrush = CreateSolidBrush(UI_LIGHT_BG_PRIMARY);
             HDC hdcBtn = (HDC)wParam;
             SetBkColor(hdcBtn, UI_LIGHT_BG_PRIMARY);
-            return (LRESULT)CreateSolidBrush(UI_LIGHT_BG_PRIMARY);
+            return (LRESULT)hBrush;
         }
 
         // 绘制对话框背景

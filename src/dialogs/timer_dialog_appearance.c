@@ -125,9 +125,15 @@ static void DrawTextSDF(HDC hdc, const wchar_t* text, RECT* rc, int format, HFON
 static void RenderDialogUI() {
     memset(g_pBits, 0, DLG_WIDTH * DLG_HEIGHT * 4);
     
-    // Solid panel: fill entire window (system provides drop shadow via DWM)
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, DLG_RADIUS, DLG_RADIUS, 0, 0, DLG_WIDTH, DLG_HEIGHT,
+    // Panel: soft shadow + fill + thin border (Win11 native dialog style)
+    DrawSoftShadowSDF(g_pBits, DLG_WIDTH, DLG_HEIGHT, rcCard.left, rcCard.top,
+        rcCard.right-rcCard.left, rcCard.bottom-rcCard.top, DLG_RADIUS, DLG_SHADOW, 3, 0.08f);
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, DLG_RADIUS, DLG_RADIUS,
+        rcCard.left, rcCard.top, rcCard.right-rcCard.left, rcCard.bottom-rcCard.top,
         GetRValue(UI_LIGHT_BG_PRIMARY), GetGValue(UI_LIGHT_BG_PRIMARY), GetBValue(UI_LIGHT_BG_PRIMARY), 255);
+    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, DLG_RADIUS, DLG_RADIUS,
+        rcCard.left, rcCard.top, rcCard.right-rcCard.left, rcCard.bottom-rcCard.top,
+        1, GetRValue(UI_LIGHT_BORDER), GetGValue(UI_LIGHT_BORDER), GetBValue(UI_LIGHT_BORDER), 255);
 
     // Prepare GDI for Text
     HFONT hFontLabel = CreateFontW(16, 0,0,0, FW_NORMAL, 0,0,0, DEFAULT_CHARSET, 0,0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
@@ -161,7 +167,7 @@ static void RenderDialogUI() {
     DrawTextSDF(g_hdcBuffer, texts->opacity, &rcLabelOp, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_PRIMARY);
     
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 3, 3, rcSliderTrack.left, rcSliderTrack.top, rcSliderTrack.right-rcSliderTrack.left, rcSliderTrack.bottom-rcSliderTrack.top, 220, 220, 225, 255);
-    float pct = (g_tempOpacity - 50) / 205.0f;
+    float pct = g_tempOpacity / 255.0f; // 透明度 0-255 线性映射到滑块
     if (pct < 0) pct = 0; if (pct > 1) pct = 1;
     int fillW = (int)((rcSliderTrack.right - rcSliderTrack.left) * pct);
     if (fillW > 0) {
@@ -311,7 +317,7 @@ static HitTestID HitTest(POINT pt) {
     if (PtInRect(&rcRandomText, pt)) return HIT_RANDOM;
     if (PtInRect(&rcSliderTrack, pt)) return HIT_SLIDER_TRACK;
     
-    int fillW = (int)((rcSliderTrack.right - rcSliderTrack.left) * ((g_tempOpacity - 50) / 205.0f));
+    int fillW = (int)((rcSliderTrack.right - rcSliderTrack.left) * (g_tempOpacity / 255.0f));
     int thumbX = rcSliderTrack.left + fillW;
     int thumbY = rcSliderTrack.top + (rcSliderTrack.bottom - rcSliderTrack.top)/2;
     RECT rcThumb = {thumbX - sliderThumbR, thumbY - sliderThumbR, thumbX + sliderThumbR, thumbY + sliderThumbR};

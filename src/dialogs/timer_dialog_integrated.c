@@ -7,6 +7,12 @@ static BOOL g_isIntegratedDlgDragging = FALSE;
 static POINT g_integratedDlgDragStart;
 static RECT g_integratedDlgRectStart;
 
+// WM_CREATE 中创建的字体句柄，在 WM_DESTROY 时释放，避免 GDI 资源泄漏
+static HFONT g_hIntegratedFontTitle = NULL;
+static HFONT g_hIntegratedFontSection = NULL;
+static HFONT g_hIntegratedFontNormal = NULL;
+static HFONT g_hIntegratedFontLabel = NULL;
+
 HWND GetIntegratedDialog(void) {
     return g_hIntegratedDialog;
 }
@@ -113,43 +119,43 @@ LRESULT CALLBACK IntegratedDialogProc(HWND hDlg, UINT message, WPARAM wParam, LP
             const MenuTexts* texts = GetMenuTexts();
             
             // 创建字体
-            HFONT hFontTitle = CreateFontW(24, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
-            HFONT hFontSection = CreateFontW(18, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
-            HFONT hFontNormal = CreateFontW(17, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
-            HFONT hFontLabel = CreateFontW(15, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
+            g_hIntegratedFontTitle = CreateFontW(24, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
+            g_hIntegratedFontSection = CreateFontW(18, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
+            g_hIntegratedFontNormal = CreateFontW(17, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
+            g_hIntegratedFontLabel = CreateFontW(15, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
 
             // 1. 标题
             HWND hMainTitle = CreateWindowW(L"STATIC", texts->integratedTitle, WS_VISIBLE | WS_CHILD, 30, 25, 300, 35, hDlg, NULL, GetModuleHandle(NULL), NULL);
-            SendMessage(hMainTitle, WM_SETFONT, (WPARAM)hFontTitle, TRUE);
+            SendMessage(hMainTitle, WM_SETFONT, (WPARAM)g_hIntegratedFontTitle, TRUE);
 
             // 2. 时间设置部分
             HWND hSub1 = CreateWindowW(L"STATIC", texts->setTimeTitle, WS_VISIBLE | WS_CHILD, 30, 80, 300, 25, hDlg, NULL, GetModuleHandle(NULL), NULL);
-            SendMessage(hSub1, WM_SETFONT, (WPARAM)hFontSection, TRUE);
+            SendMessage(hSub1, WM_SETFONT, (WPARAM)g_hIntegratedFontSection, TRUE);
 
             int xStart = 35, yStart = 115, gap = 150;
             
             // 小时步进器
             HWND hL1 = CreateWindowW(L"STATIC", texts->hours, WS_VISIBLE | WS_CHILD, xStart, yStart, 100, 20, hDlg, NULL, GetModuleHandle(NULL), NULL);
-            SendMessage(hL1, WM_SETFONT, (WPARAM)hFontLabel, TRUE);
+            SendMessage(hL1, WM_SETFONT, (WPARAM)g_hIntegratedFontLabel, TRUE);
             CreateWindowW(L"BUTTON", L"-", WS_VISIBLE | WS_CHILD | BS_OWNERDRAW, xStart, yStart + 25, 36, 32, hDlg, (HMENU)ID_BTN_HRS_MINUS, GetModuleHandle(NULL), NULL);
             HWND hEditHrs = CreateWindowW(L"EDIT", L"00", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_CENTER | ES_NUMBER, xStart + 36, yStart + 25, 50, 32, hDlg, (HMENU)ID_INTEGRATED_EDIT_HOURS, GetModuleHandle(NULL), NULL);
-            SendMessage(hEditHrs, WM_SETFONT, (WPARAM)hFontNormal, TRUE);
+            SendMessage(hEditHrs, WM_SETFONT, (WPARAM)g_hIntegratedFontNormal, TRUE);
             CreateWindowW(L"BUTTON", L"+", WS_VISIBLE | WS_CHILD | BS_OWNERDRAW, xStart + 86, yStart + 25, 36, 32, hDlg, (HMENU)ID_BTN_HRS_PLUS, GetModuleHandle(NULL), NULL);
 
             // 分钟步进器
             HWND hL2 = CreateWindowW(L"STATIC", texts->minutes, WS_VISIBLE | WS_CHILD, xStart + gap, yStart, 100, 20, hDlg, NULL, GetModuleHandle(NULL), NULL);
-            SendMessage(hL2, WM_SETFONT, (WPARAM)hFontLabel, TRUE);
+            SendMessage(hL2, WM_SETFONT, (WPARAM)g_hIntegratedFontLabel, TRUE);
             CreateWindowW(L"BUTTON", L"-", WS_VISIBLE | WS_CHILD | BS_OWNERDRAW, xStart + gap, yStart + 25, 36, 32, hDlg, (HMENU)ID_BTN_MIN_MINUS, GetModuleHandle(NULL), NULL);
             HWND hEditMin = CreateWindowW(L"EDIT", L"00", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_CENTER | ES_NUMBER, xStart + gap + 36, yStart + 25, 50, 32, hDlg, (HMENU)ID_INTEGRATED_EDIT_MINUTES, GetModuleHandle(NULL), NULL);
-            SendMessage(hEditMin, WM_SETFONT, (WPARAM)hFontNormal, TRUE);
+            SendMessage(hEditMin, WM_SETFONT, (WPARAM)g_hIntegratedFontNormal, TRUE);
             CreateWindowW(L"BUTTON", L"+", WS_VISIBLE | WS_CHILD | BS_OWNERDRAW, xStart + gap + 86, yStart + 25, 36, 32, hDlg, (HMENU)ID_BTN_MIN_PLUS, GetModuleHandle(NULL), NULL);
 
             // 秒钟步进器
             HWND hL3 = CreateWindowW(L"STATIC", texts->seconds, WS_VISIBLE | WS_CHILD, xStart + gap * 2, yStart, 100, 20, hDlg, NULL, GetModuleHandle(NULL), NULL);
-            SendMessage(hL3, WM_SETFONT, (WPARAM)hFontLabel, TRUE);
+            SendMessage(hL3, WM_SETFONT, (WPARAM)g_hIntegratedFontLabel, TRUE);
             CreateWindowW(L"BUTTON", L"-", WS_VISIBLE | WS_CHILD | BS_OWNERDRAW, xStart + gap * 2, yStart + 25, 36, 32, hDlg, (HMENU)ID_BTN_SEC_MINUS, GetModuleHandle(NULL), NULL);
             HWND hEditSec = CreateWindowW(L"EDIT", L"00", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_CENTER | ES_NUMBER, xStart + gap * 2 + 36, yStart + 25, 50, 32, hDlg, (HMENU)ID_INTEGRATED_EDIT_SECONDS, GetModuleHandle(NULL), NULL);
-            SendMessage(hEditSec, WM_SETFONT, (WPARAM)hFontNormal, TRUE);
+            SendMessage(hEditSec, WM_SETFONT, (WPARAM)g_hIntegratedFontNormal, TRUE);
             CreateWindowW(L"BUTTON", L"+", WS_VISIBLE | WS_CHILD | BS_OWNERDRAW, xStart + gap * 2 + 86, yStart + 25, 36, 32, hDlg, (HMENU)ID_BTN_SEC_PLUS, GetModuleHandle(NULL), NULL);
 
             // 初始化编辑框数值
@@ -164,7 +170,7 @@ LRESULT CALLBACK IntegratedDialogProc(HWND hDlg, UINT message, WPARAM wParam, LP
             // 3. 格式设置部分
             CreateWindowW(L"STATIC", L"", WS_VISIBLE | WS_CHILD | SS_ETCHEDHORZ, 30, 200, 440, 1, hDlg, NULL, GetModuleHandle(NULL), NULL);
             HWND hSub2 = CreateWindowW(L"STATIC", texts->formatTitle, WS_VISIBLE | WS_CHILD, 30, 220, 300, 25, hDlg, NULL, GetModuleHandle(NULL), NULL);
-            SendMessage(hSub2, WM_SETFONT, (WPARAM)hFontSection, TRUE);
+            SendMessage(hSub2, WM_SETFONT, (WPARAM)g_hIntegratedFontSection, TRUE);
 
             int checkY = 255;
             HWND hChk1 = CreateWindowW(L"BUTTON", texts->hours, WS_VISIBLE | WS_CHILD | BS_OWNERDRAW, 45, checkY, 200, 36, hDlg, (HMENU)ID_INTEGRATED_CHECK_HOURS, GetModuleHandle(NULL), NULL);
@@ -387,6 +393,11 @@ LRESULT CALLBACK IntegratedDialogProc(HWND hDlg, UINT message, WPARAM wParam, LP
         }
 
         case WM_DESTROY:
+            // 释放字体句柄，避免 GDI 资源泄漏
+            if (g_hIntegratedFontTitle) { DeleteObject(g_hIntegratedFontTitle); g_hIntegratedFontTitle = NULL; }
+            if (g_hIntegratedFontSection) { DeleteObject(g_hIntegratedFontSection); g_hIntegratedFontSection = NULL; }
+            if (g_hIntegratedFontNormal) { DeleteObject(g_hIntegratedFontNormal); g_hIntegratedFontNormal = NULL; }
+            if (g_hIntegratedFontLabel) { DeleteObject(g_hIntegratedFontLabel); g_hIntegratedFontLabel = NULL; }
             g_hIntegratedDialog = NULL;
             EnableWindow(g_timerState.hMainWnd, TRUE);
             SetForegroundWindow(g_timerState.hMainWnd);

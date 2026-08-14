@@ -11,6 +11,9 @@
 #include "ios_menu.h"
 #include <shellapi.h>
 
+// 拖拽缩放节流间隔（毫秒），约 60 FPS，避免每个鼠标移动事件都触发同步重绘
+#define RESIZE_THROTTLE_MS 16
+
 // iOS 菜单系统前置声明
 static void InitIosMenuSystem(void);
 static void ShowIosContextMenu(HWND owner, int x, int y);
@@ -227,6 +230,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 SetCapture(hwnd);
                 GetCursorPos(&g_timerState.lastMousePos);
                 GetWindowRect(hwnd, &g_timerState.windowRect);
+                g_timerState.lastResizeRedrawTime = 0; // 新一次拖拽立即响应首个位移
             } else {
                 g_timerState.isDragging = TRUE;
                 SetCapture(hwnd);
@@ -264,9 +268,29 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 int newWidth = newRect.right - newRect.left;
                 int newHeight = newRect.bottom - newRect.top;
 
-                if (newWidth >= 100 && newHeight >= 50) {
+                // 钳制到最小尺寸：缩小方向触底后仍持续跟随鼠标，而不是停止更新
+                if (newWidth < 100) newWidth = 100;
+                if (newHeight < 50) newHeight = 50;
+
+                // 依据拖拽边缘固定对边，修正窗口位置
+                if (g_timerState.resizeEdge & RESIZE_LEFT) {
+                    newRect.left = newRect.right - newWidth;
+                }
+                if (g_timerState.resizeEdge & RESIZE_RIGHT) {
+                    newRect.right = newRect.left + newWidth;
+                }
+                if (g_timerState.resizeEdge & RESIZE_TOP) {
+                    newRect.top = newRect.bottom - newHeight;
+                }
+                if (g_timerState.resizeEdge & RESIZE_BOTTOM) {
+                    newRect.bottom = newRect.top + newHeight;
+                }
+
+                DWORD now = GetTickCount();
+                if (now - g_timerState.lastResizeRedrawTime >= RESIZE_THROTTLE_MS) {
                     SetWindowPos(hwnd, NULL, newRect.left, newRect.top,
                                newWidth, newHeight, SWP_NOZORDER);
+                    g_timerState.lastResizeRedrawTime = now;
                     g_timerState.needsFinalRedraw = TRUE;
                 }
             } else if (g_timerState.isDragging) {
@@ -290,16 +314,70 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         }
 
         case WM_LBUTTONUP: {
+            if (g_timerState.isResizing) {
+                // 应用最终尺寸：补偿节流期间可能被跳过的最后一段位移
+                POINT currentPos;
+                GetCursorPos(&currentPos);
+
+                int deltaX = currentPos.x - g_timerState.lastMousePos.x;
+                int deltaY = currentPos.y - g_timerState.lastMousePos.y;
+
+                RECT newRect = g_timerState.windowRect;
+                if (g_timerState.resizeEdge & RESIZE_LEFT) {
+                    newRect.left += deltaX;
+                }
+                if (g_timerState.resizeEdge & RESIZE_RIGHT) {
+                    newRect.right += deltaX;
+                }
+                if (g_timerState.resizeEdge & RESIZE_TOP) {
+                    newRect.top += deltaY;
+                }
+                if (g_timerState.resizeEdge & RESIZE_BOTTOM) {
+                    newRect.bottom += deltaY;
+                }
+
+                int newWidth = newRect.right - newRect.left;
+                int newHeight = newRect.bottom - newRect.top;
+                if (newWidth < 100) newWidth = 100;
+                if (newHeight < 50) newHeight = 50;
+
+                if (g_timerState.resizeEdge & RESIZE_LEFT) {
+                    newRect.left = newRect.right - newWidth;
+                }
+                if (g_timerState.resizeEdge & RESIZE_RIGHT) {
+                    newRect.right = newRect.left + newWidth;
+                }
+                if (g_timerState.resizeEdge & RESIZE_TOP) {
+                    newRect.top = newRect.bottom - newHeight;
+                }
+                if (g_timerState.resizeEdge & RESIZE_BOTTOM) {
+                    newRect.bottom = newRect.top + newHeight;
+                }
+
+                SetWindowPos(hwnd, NULL, newRect.left, newRect.top,
+                           newWidth, newHeight, SWP_NOZORDER);
+            }
+
             if (g_timerState.isDragging || g_timerState.isResizing) {
                 g_timerState.isDragging = FALSE;
                 g_timerState.isResizing = FALSE;
                 g_timerState.resizeEdge = 0;
                 ReleaseCapture();
 
+                // 拖拽期间 WM_SIZE 跳过了圆角/阴影更新，松手后按最终尺寸恢复
+                if (g_timerState.transparentBackground) {
+                    SetWindowRoundedCorners(hwnd, 0);
+                    SetWindowShadow(hwnd, FALSE);
+                } else {
+                    SetWindowRoundedCorners(hwnd, 6);
+                    SetWindowShadow(hwnd, TRUE);
+                }
+
                 // 拖拽结束后补偿一次完整重绘（确保最终尺寸精确渲染）
                 if (g_timerState.needsFinalRedraw) {
                     g_timerState.needsFinalRedraw = FALSE;
                     InvalidateRect(hwnd, NULL, FALSE);
+                    UpdateWindow(hwnd);
                 }
             }
             return 0;
@@ -514,23 +592,21 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             // 标记双缓冲位图需要重建
             g_timerState.backBufferDirty = TRUE;
 
-            // 根据透明背景模式决定是否应用装饰效果
-            if (!g_timerState.transparentBackground) {
-                // 更新圆角效果
-                SetWindowRoundedCorners(hwnd, 6);
-
-                // 更新阴影效果
-                SetWindowShadow(hwnd, TRUE);
-            } else {
-                // 透明模式下确保移除装饰效果
-                SetWindowRoundedCorners(hwnd, 0);
-                SetWindowShadow(hwnd, FALSE);
+            // 圆角/阴影属于 DWM 调用，拖拽期间尺寸变化频繁，先跳过，待松手时再恢复
+            if (!g_timerState.isResizing) {
+                // 根据透明背景模式决定是否应用装饰效果
+                if (!g_timerState.transparentBackground) {
+                    SetWindowRoundedCorners(hwnd, 6);
+                    SetWindowShadow(hwnd, TRUE);
+                } else {
+                    SetWindowRoundedCorners(hwnd, 0);
+                    SetWindowShadow(hwnd, FALSE);
+                }
             }
 
-            // 强制同步重绘：InvalidateRect 仅标记脏区域，WM_PAINT 要等消息队列空闲才执行，
-            // 拖拽期间鼠标事件密集导致 WM_PAINT 排不上队，窗口框架和内容不同步。
-            // RedrawWindow + RDW_UPDATENOW 强制立即执行 WM_PAINT。
-            RedrawWindow(hwnd, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
+            // 改为异步重绘：让 WM_PAINT 在消息队列空闲时合并执行，
+            // 避免拖拽期间每个 WM_SIZE 都同步阻塞在重绘上造成卡顿。
+            InvalidateRect(hwnd, NULL, FALSE);
             return 0;
         }
 

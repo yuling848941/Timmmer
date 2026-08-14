@@ -43,13 +43,15 @@ void CleanupBackBuffer(void) {
 }
 
 void EnsureBackBufferSize(int width, int height) {
+    // 只增不减：现有位图足够容纳当前窗口时直接复用，避免拖拽缩放时频繁销毁重建
     if (g_timerState.hbmBackBuffer &&
-        width == g_timerState.backBufferWidth &&
-        height == g_timerState.backBufferHeight) {
-        return; // 尺寸匹配，无需重建
+        g_timerState.hdcBackBuffer &&
+        width <= g_timerState.backBufferWidth &&
+        height <= g_timerState.backBufferHeight) {
+        return;
     }
 
-    // 清理旧位图
+    // 首次创建或窗口尺寸超过现有位图时才重建
     CleanupBackBuffer();
 
     // 创建新位图

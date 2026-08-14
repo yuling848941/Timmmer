@@ -34,7 +34,7 @@ static RECT g_dlgStartRect;
 
 /* Inline editing state */
 static EditField g_editingField = EDIT_NONE;
-static wchar_t g_editBuffer[5];   /* max "99" + null */
+static wchar_t g_editBuffer[5];   /* max "999" + null */
 static int g_editCursorPos = 0;
 static BOOL g_cursorVisible = FALSE;
 static UINT_PTR g_cursorTimerId = 1;
@@ -127,13 +127,55 @@ static BOOL CanToggleHour(BOOL h, BOOL m, BOOL s, BOOL ms) { return m; }
 static BOOL CanToggleMinute(BOOL h, BOOL m, BOOL s, BOOL ms) { return !(ms && !s); }
 static BOOL CanToggleMS(BOOL h, BOOL m, BOOL s, BOOL ms) { return s; }
 
+/* --- Time value / display format conversion helpers --- */
+
+static int GetMaxTotalSeconds(void) {
+    if (g_tempShowHours) {
+        return 99 * 3600 + 59 * 60 + 59;
+    }
+    if (g_tempShowMinutes) {
+        return 999 * 60 + 59;
+    }
+    return 999;
+}
+
+static int TotalSecondsFromFields(void) {
+    if (g_tempShowHours) {
+        return g_tempHours * 3600 + g_tempMinutes * 60 + g_tempSeconds;
+    }
+    if (g_tempShowMinutes) {
+        return g_tempMinutes * 60 + g_tempSeconds;
+    }
+    return g_tempSeconds;
+}
+
+static void FieldsFromTotalSeconds(int totalSec) {
+    if (totalSec < 0) totalSec = 0;
+    int maxTotal = GetMaxTotalSeconds();
+    if (totalSec > maxTotal) totalSec = maxTotal;
+
+    if (g_tempShowHours) {
+        g_tempHours = totalSec / 3600;
+        g_tempMinutes = (totalSec % 3600) / 60;
+        g_tempSeconds = totalSec % 60;
+    } else if (g_tempShowMinutes) {
+        g_tempHours = 0;
+        g_tempMinutes = totalSec / 60;
+        g_tempSeconds = totalSec % 60;
+    } else {
+        g_tempHours = 0;
+        g_tempMinutes = 0;
+        g_tempSeconds = totalSec;
+    }
+}
+
 /* --- Inline editing helpers --- */
 
 static int GetEditFieldMax(EditField f) {
     switch (f) {
         case EDIT_HOURS:   return 99;
-        case EDIT_MINUTES: return 59;
-        case EDIT_SECONDS: return 59;
+        case EDIT_MINUTES: return g_tempShowHours ? 59 : 999;
+        case EDIT_SECONDS: return g_tempShowMinutes ? 59 : 999;
         default: return 99;
     }
 }
@@ -185,7 +227,8 @@ static void HandleEditKey(WPARAM vk) {
     int len = (int)wcslen(g_editBuffer);
 
     if (vk >= '0' && vk <= '9') {
-        if (len < 2 && g_editCursorPos < 2) {
+        int maxDigits = (GetEditFieldMax(g_editingField) > 99) ? 3 : 2;
+        if (len < maxDigits && g_editCursorPos < maxDigits) {
             /* Insert digit at cursor position */
             for (int i = len; i > g_editCursorPos; i--)
                 g_editBuffer[i] = g_editBuffer[i - 1];
@@ -534,7 +577,7 @@ static void RenderDialogUI(void) {
 
 static void ApplyAndSave(void) {
     // Apply time value
-    SetTimerSeconds(g_tempHours * 3600 + g_tempMinutes * 60 + g_tempSeconds);
+    SetTimerSeconds(TotalSecondsFromFields());
     // Apply format settings
     SetShowHours(g_tempShowHours);
     SetShowMinutes(g_tempShowMinutes);
@@ -558,13 +601,11 @@ LRESULT CALLBACK SetTimeDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
 
             // Initialize temp values from current state
             int totalSec = g_timerState.seconds;
-            g_tempHours = totalSec / 3600;
-            g_tempMinutes = (totalSec % 3600) / 60;
-            g_tempSeconds = totalSec % 60;
             g_tempShowHours = g_timerState.showHours;
             g_tempShowMinutes = g_timerState.showMinutes;
             g_tempShowSeconds = g_timerState.showSeconds;
             g_tempShowMilliseconds = g_timerState.showMilliseconds;
+            FieldsFromTotalSeconds(totalSec);
             g_origHours = g_tempHours; g_origMinutes = g_tempMinutes; g_origSeconds = g_tempSeconds;
             g_origShowHours = g_tempShowHours; g_origShowMinutes = g_tempShowMinutes;
             g_origShowSeconds = g_tempShowSeconds; g_origShowMilliseconds = g_tempShowMilliseconds;
@@ -632,13 +673,13 @@ LRESULT CALLBACK SetTimeDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
                         if (g_tempShowMinutes && g_tempMinutes > 0) g_tempMinutes--;
                         break;
                     case HIT_MIN_PLUS:
-                        if (g_tempShowMinutes && g_tempMinutes < 59) g_tempMinutes++;
+                        if (g_tempShowMinutes && g_tempMinutes < GetEditFieldMax(EDIT_MINUTES)) g_tempMinutes++;
                         break;
                     case HIT_SEC_MINUS:
                         if (g_tempShowSeconds && g_tempSeconds > 0) g_tempSeconds--;
                         break;
                     case HIT_SEC_PLUS:
-                        if (g_tempShowSeconds && g_tempSeconds < 59) g_tempSeconds++;
+                        if (g_tempShowSeconds && g_tempSeconds < GetEditFieldMax(EDIT_SECONDS)) g_tempSeconds++;
                         break;
 
                     case HIT_HRS_DISPLAY:
@@ -653,19 +694,25 @@ LRESULT CALLBACK SetTimeDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
 
                     case HIT_TOGGLE_HOUR:
                         if (CanToggleHour(!h, m, s, ms)) {
+                            int total = TotalSecondsFromFields();
                             g_tempShowHours = !h;
-                            if (!g_tempShowHours) g_tempHours = 0;
+                            FieldsFromTotalSeconds(total);
                         }
                         break;
                     case HIT_TOGGLE_MINUTE:
                         if (CanToggleMinute(h, !m, s, ms)) {
+                            int total = TotalSecondsFromFields();
                             g_tempShowMinutes = !m;
-                            if (!g_tempShowMinutes) g_tempMinutes = 0;
+                            if (!g_tempShowMinutes) g_tempShowHours = FALSE;
+                            FieldsFromTotalSeconds(total);
                         }
                         break;
                     case HIT_TOGGLE_SECOND:
-                        g_tempShowSeconds = !s;
-                        if (!g_tempShowSeconds) g_tempSeconds = 0;
+                        {
+                            int total = TotalSecondsFromFields();
+                            g_tempShowSeconds = !s;
+                            FieldsFromTotalSeconds(total);
+                        }
                         break;
                     case HIT_TOGGLE_MILLISECOND:
                         if (CanToggleMS(h, m, s, !ms)) {

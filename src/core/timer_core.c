@@ -120,65 +120,78 @@ void FormatTime(int seconds, char* buffer) {
 }
 
 void FormatTimeCustom(int seconds, char* buffer) {
+    int totalMinutes = seconds / 60;
     int hours = seconds / 3600;
-    int minutes = (seconds % 3600) / 60;
-    int secs = seconds % 60;
-    
+    int minutes;
+    int secs;
+
+    if (g_timerState.showHours) {
+        minutes = (seconds % 3600) / 60;
+        secs = seconds % 60;
+    } else if (g_timerState.showMinutes) {
+        minutes = totalMinutes;
+        secs = seconds % 60;
+    } else {
+        minutes = 0;
+        secs = seconds;
+    }
+
     // 计算毫秒（倒计时模式：99递减到00）
     int milliseconds = 0;
     if (g_timerState.showMilliseconds && g_timerState.isRunning) {
         DWORD currentTime = (DWORD)GetTickCount64();
         DWORD elapsed = currentTime - g_timerState.startTime;
-        
+
         // 计算当前秒内的毫秒进度
         int msInCurrentSecond = elapsed % 1000;
-        
+
         // 倒计时模式：从99倒数到00
         milliseconds = 99 - (msInCurrentSecond / 10);
-        
+
         if (seconds == 0) {
             milliseconds = 0; // 时间到了，毫秒也归零
         }
     }
-    
+
     char timeStr[256] = "";
     char tempStr[64];
     BOOL needSeparator = FALSE;
-    
+
     // 根据设置显示各个时间单位
     if (g_timerState.showHours) {
         sprintf_s(tempStr, 64, "%02d", hours);
         strcat_s(timeStr, 256, tempStr);
         needSeparator = TRUE;
     }
-    
+
     if (g_timerState.showMinutes) {
         if (needSeparator) strcat_s(timeStr, 256, ":");
         sprintf_s(tempStr, 64, "%02d", minutes);
         strcat_s(timeStr, 256, tempStr);
         needSeparator = TRUE;
     }
-    
+
     if (g_timerState.showSeconds) {
         if (needSeparator) strcat_s(timeStr, 256, ":");
         sprintf_s(tempStr, 64, "%02d", secs);
         strcat_s(timeStr, 256, tempStr);
         needSeparator = TRUE;
     }
-    
+
     if (g_timerState.showMilliseconds) {
         if (needSeparator) strcat_s(timeStr, 256, ".");
         sprintf_s(tempStr, 64, "%02d", milliseconds);
         strcat_s(timeStr, 256, tempStr);
     }
-    
+
     // 如果所有显示选项都为false，显示默认格式（分:秒）
     if (strlen(timeStr) == 0) {
-        sprintf_s(timeStr, 256, "%02d:%02d", minutes, secs);
+        sprintf_s(timeStr, 256, "%02d:%02d", totalMinutes, seconds % 60);
     }
-    
+
     strcpy_s(buffer, 32, timeStr);
 }
+
 
 BOOL IsTimerRunning(void) {
     return g_timerState.isRunning;

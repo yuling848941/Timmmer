@@ -65,15 +65,46 @@ void UpdateTrayIcon(void) {
         wchar_t timeStr[64];
         wchar_t statusStr[128];
 
-        // 格式化时间显示
+        // 格式化时间显示（与主界面 FormatTimeCustom 保持同一规则）
+        int totalMinutes = g_timerState.seconds / 60;
         int hours = g_timerState.seconds / 3600;
-        int minutes = (g_timerState.seconds % 3600) / 60;
-        int secs = g_timerState.seconds % 60;
+        int minutes;
+        int secs;
 
         if (g_timerState.showHours) {
-            swprintf_s(timeStr, 64, L"%02d:%02d:%02d", hours, minutes, secs);
+            minutes = (g_timerState.seconds % 3600) / 60;
+            secs = g_timerState.seconds % 60;
+        } else if (g_timerState.showMinutes) {
+            minutes = totalMinutes;
+            secs = g_timerState.seconds % 60;
         } else {
-            swprintf_s(timeStr, 64, L"%02d:%02d", minutes, secs);
+            minutes = 0;
+            secs = g_timerState.seconds;
+        }
+
+        wchar_t tempStr[16];
+        BOOL needSeparator = FALSE;
+        timeStr[0] = L'\0';
+
+        if (g_timerState.showHours) {
+            swprintf_s(tempStr, 16, L"%02d", hours);
+            wcscat_s(timeStr, 64, tempStr);
+            needSeparator = TRUE;
+        }
+        if (g_timerState.showMinutes) {
+            if (needSeparator) wcscat_s(timeStr, 64, L":");
+            swprintf_s(tempStr, 16, L"%02d", minutes);
+            wcscat_s(timeStr, 64, tempStr);
+            needSeparator = TRUE;
+        }
+        if (g_timerState.showSeconds) {
+            if (needSeparator) wcscat_s(timeStr, 64, L":");
+            swprintf_s(tempStr, 16, L"%02d", secs);
+            wcscat_s(timeStr, 64, tempStr);
+            needSeparator = TRUE;
+        }
+        if (timeStr[0] == L'\0') {
+            swprintf_s(timeStr, 64, L"%02d:%02d", totalMinutes, g_timerState.seconds % 60);
         }
 
         // 组合状态信息

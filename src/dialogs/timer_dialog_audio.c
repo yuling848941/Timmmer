@@ -80,19 +80,6 @@ static void DrawTextSDF(HDC hdc, const wchar_t* text, RECT* rc, int format, HFON
     SelectObject(hdc, hOldFont);
 }
 
-static void DrawSwitchWin11(int x, int y, BOOL isOn) {
-    int sw = 34, sh = 18, ts = 10;
-    int cy = y + (rcToggleSwitch.bottom - rcToggleSwitch.top - sh) / 2;
-    if (isOn) {
-        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, sh / 2, sh / 2, x, cy, sw, sh, 0, 95, 184, 255);
-        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, ts / 2, ts / 2, x + sw - ts - 4, cy + 4, ts, ts, 255, 255, 255, 255);
-    } else {
-        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, sh / 2, sh / 2, x, cy, sw, sh, 180, 180, 180, 255);
-        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, (sh - 2) / 2, (sh - 2) / 2, x + 1, cy + 1, sw - 2, sh - 2, 255, 255, 255, 255);
-        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, ts / 2, ts / 2, x + 5, cy + 4, ts, ts, 120, 120, 120, 255);
-    }
-}
-
 static void RenderDialogUI() {
     memset(g_pBits, 0, DLG_WIDTH * DLG_HEIGHT * 4);
 
@@ -119,7 +106,8 @@ static void RenderDialogUI() {
     RECT rcToggleLabel = {DLG_SHADOW + 50, DLG_SHADOW + 58, DLG_SHADOW + 200, DLG_SHADOW + 78};
     DrawTextSDF(g_hdcBuffer, texts->enableAudio, &rcToggleLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_PRIMARY);
     // Switch control
-    DrawSwitchWin11(rcToggleSwitch.left, DLG_SHADOW + 55, g_tempEnableAudio);
+    DrawSwitchWin11(g_pBits, DLG_WIDTH, DLG_HEIGHT, rcToggleSwitch.left, DLG_SHADOW + 55,
+                    rcToggleSwitch.bottom - rcToggleSwitch.top, g_tempEnableAudio);
 
     // ---- Segment: 音频语言 ----
     RECT rcSegLabel = {DLG_SHADOW + 50, DLG_SHADOW + 105, DLG_SHADOW + 200, DLG_SHADOW + 125};

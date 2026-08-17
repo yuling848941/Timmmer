@@ -102,7 +102,14 @@ static const MenuTexts g_menuTexts[2] = {
         // 恢复出厂设置
         L"恢复出厂设置",
         L"提示：点击数字可直接编辑，悬停显示删除按钮",
-        L"预设时间需在 1-999 分钟之间"
+        L"预设时间需在 1-999 分钟之间",
+        // 托盘快速面板
+        L"快速开始",
+        L"显示主窗口",
+        L"运行中",
+        L"已暂停",
+        L"时间到",
+        L"自定义…"
     },
     // 英文
     {
@@ -167,7 +174,14 @@ static const MenuTexts g_menuTexts[2] = {
         // Factory Reset
         L"Factory Reset",
         L"Tip: Click the number to edit, hover to show delete",
-        L"Preset must be between 1 and 999 minutes"
+        L"Preset must be between 1 and 999 minutes",
+        // Tray quick panel
+        L"Quick Start",
+        L"Show Main Window",
+        L"Running",
+        L"Paused",
+        L"Time's up",
+        L"Custom..."
     }
 };
 

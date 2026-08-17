@@ -8,6 +8,7 @@ BOOL InitializeTrayIcon(HWND hwnd);
 void ShowTrayIcon(void);
 void HideTrayIcon(void);
 void UpdateTrayIcon(void);
+void RefreshTrayIconAfterTaskbarRestart(void);
 void CleanupTrayIcon(void);
 
 #endif // TIMER_TRAY_H

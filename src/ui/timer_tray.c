@@ -8,6 +8,22 @@
 // 系统托盘管理
 // ===========================================
 
+// 统一构建 tooltip 文案：时间 + 状态，走语言包，不硬编码英文前缀
+static void BuildTrayTooltipText(wchar_t* out, size_t cap) {
+    char timeNarrow[32];
+    wchar_t timeWide[40];
+    FormatTimeCustom(g_timerState.seconds, timeNarrow);
+    size_t i = 0;
+    for (; timeNarrow[i] != '\0' && i + 1 < 40; i++) {
+        timeWide[i] = (wchar_t)(unsigned char)timeNarrow[i];
+    }
+    timeWide[i] = L'\0';
+
+    const MenuTexts* texts = GetMenuTexts();
+    swprintf_s(out, cap, L"%s (%s)", timeWide,
+               g_timerState.isRunning ? texts->pause : texts->start);
+}
+
 BOOL InitializeTrayIcon(HWND hwnd) {
     // 初始化托盘图标数据
     ZeroMemory(&g_timerState.trayIconData, sizeof(NOTIFYICONDATAW));
@@ -35,10 +51,8 @@ BOOL InitializeTrayIcon(HWND hwnd) {
         }
     }
 
-    // 设置提示文本
-    const MenuTexts* texts = GetMenuTexts();
-    wcscpy_s(g_timerState.trayIconData.szTip, 128, L"Timer - ");
-    wcscat_s(g_timerState.trayIconData.szTip, 128, texts->startPause);
+    // 设置提示文本（初始即为当前时间状态）
+    BuildTrayTooltipText(g_timerState.trayIconData.szTip, 128);
 
     g_timerState.isTrayIconVisible = FALSE;
     return TRUE;
@@ -60,61 +74,16 @@ void HideTrayIcon(void) {
 
 void UpdateTrayIcon(void) {
     if (g_timerState.isTrayIconVisible) {
-        // 更新提示文本显示当前时间状态
-        const MenuTexts* texts = GetMenuTexts();
-        wchar_t timeStr[64];
-        wchar_t statusStr[128];
-
-        // 格式化时间显示（与主界面 FormatTimeCustom 保持同一规则）
-        int totalMinutes = g_timerState.seconds / 60;
-        int hours = g_timerState.seconds / 3600;
-        int minutes;
-        int secs;
-
-        if (g_timerState.showHours) {
-            minutes = (g_timerState.seconds % 3600) / 60;
-            secs = g_timerState.seconds % 60;
-        } else if (g_timerState.showMinutes) {
-            minutes = totalMinutes;
-            secs = g_timerState.seconds % 60;
-        } else {
-            minutes = 0;
-            secs = g_timerState.seconds;
-        }
-
-        wchar_t tempStr[16];
-        BOOL needSeparator = FALSE;
-        timeStr[0] = L'\0';
-
-        if (g_timerState.showHours) {
-            swprintf_s(tempStr, 16, L"%02d", hours);
-            wcscat_s(timeStr, 64, tempStr);
-            needSeparator = TRUE;
-        }
-        if (g_timerState.showMinutes) {
-            if (needSeparator) wcscat_s(timeStr, 64, L":");
-            swprintf_s(tempStr, 16, L"%02d", minutes);
-            wcscat_s(timeStr, 64, tempStr);
-            needSeparator = TRUE;
-        }
-        if (g_timerState.showSeconds) {
-            if (needSeparator) wcscat_s(timeStr, 64, L":");
-            swprintf_s(tempStr, 16, L"%02d", secs);
-            wcscat_s(timeStr, 64, tempStr);
-            needSeparator = TRUE;
-        }
-        if (timeStr[0] == L'\0') {
-            swprintf_s(timeStr, 64, L"%02d:%02d", totalMinutes, g_timerState.seconds % 60);
-        }
-
-        // 组合状态信息
-        swprintf_s(statusStr, 128, L"Timer - %s (%s)",
-                  timeStr,
-                  g_timerState.isRunning ? texts->pause : texts->start);
-
-        wcscpy_s(g_timerState.trayIconData.szTip, 128, statusStr);
+        BuildTrayTooltipText(g_timerState.trayIconData.szTip, 128);
         Shell_NotifyIconW(NIM_MODIFY, &g_timerState.trayIconData);
     }
+}
+
+void RefreshTrayIconAfterTaskbarRestart(void) {
+    // Explorer 重启后旧图标已失效，重置可见标记以强制重新添加
+    g_timerState.isTrayIconVisible = FALSE;
+    ShowTrayIcon();
+    UpdateTrayIcon();
 }
 
 void CleanupTrayIcon(void) {

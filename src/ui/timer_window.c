@@ -9,6 +9,7 @@
 #include "timer_buffer.h"
 #include "timer_window_utils.h"
 #include "ios_menu.h"
+#include "tray_panel.h"
 #include <shellapi.h>
 
 // 拖拽缩放节流间隔（毫秒），约 60 FPS，避免每个鼠标移动事件都触发同步重绘
@@ -17,6 +18,9 @@
 // iOS 菜单系统前置声明
 static void InitIosMenuSystem(void);
 static void ShowIosContextMenu(HWND owner, int x, int y);
+
+// Explorer 重启后广播的 TaskbarCreated 消息（用于恢复托盘图标）
+static UINT g_wmTaskbarCreated = 0;
 
 // ===========================================
 // 窗口创建和初始化
@@ -97,6 +101,12 @@ HWND CreateTimerWindow(HINSTANCE hInstance, int nCmdShow) {
 
     // 初始化 iOS 菜单系统
     InitIosMenuSystem();
+
+    // 初始化托盘快速面板系统
+    TrayPanel_Initialize(hInstance);
+
+    // 注册 TaskbarCreated 消息，用于 Explorer 重启后恢复托盘图标
+    g_wmTaskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
 
     // 初始化持久化双缓冲位图
     InitBackBuffer();
@@ -406,15 +416,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                     break;
                 }
 
-                case WM_LBUTTONDBLCLK: {
-                    // 托盘图标双击切换预设时间
-                    CycleToNextPresetTime();
-                    // 如果窗口隐藏，则显示窗口以便用户看到时间变化
-                    if (!IsWindowVisible(hwnd)) {
-                        ShowWindow(hwnd, SW_SHOW);
-                        SetForegroundWindow(hwnd);
-                    }
-                    InvalidateRect(hwnd, NULL, FALSE);
+                case WM_LBUTTONUP: {
+                    // 左键单击托盘图标：弹出/收起快速操控面板
+                    TrayPanel_Toggle(hwnd);
                     break;
                 }
             }
@@ -649,6 +653,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 
             // 清理系统托盘图标
             CleanupTrayIcon();
+            // 清理托盘快速面板
+            TrayPanel_Shutdown();
             // 清理字体系统
             CleanupTimerFonts();
             // 清理持久化双缓冲位图
@@ -659,6 +665,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             CleanupDigitCache();
             PostQuitMessage(0);
             return 0;
+    }
+
+    // Explorer 重启后托盘图标会被系统清除，收到广播时重新添加
+    if (g_wmTaskbarCreated && uMsg == g_wmTaskbarCreated) {
+        RefreshTrayIconAfterTaskbarRestart();
+        return 0;
     }
 
     return DefWindowProc(hwnd, uMsg, wParam, lParam);

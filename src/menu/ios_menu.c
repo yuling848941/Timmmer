@@ -71,21 +71,8 @@ typedef struct {
 
 // ===========================================
 // 绘图引擎（抗锯齿）
-// 核心函数已移至 timer_render_utils.c
+// 核心函数（含 Win11 开关）在 timer_render_utils.c
 // ===========================================
-
-static void DrawSwitchWin11(BYTE* pixels, int bufW, int bufH, int x, int y, BOOL isOn) {
-    int sw = SWITCH_WIDTH, sh = SWITCH_HEIGHT, ts = 10;
-    int cy = y + (MENU_ITEM_HEIGHT - sh) / 2;
-    if (isOn) {
-        FillRoundedRectAA(pixels, bufW, bufH, sh/2, sh/2, x, cy, sw, sh, 0, 95, 184, 255);
-        FillRoundedRectAA(pixels, bufW, bufH, ts/2, ts/2, x + sw - ts - 4, cy + 4, ts, ts, 255, 255, 255, 255);
-    } else {
-        FillRoundedRectAA(pixels, bufW, bufH, sh/2, sh/2, x, cy, sw, sh, 180, 180, 180, 255);
-        FillRoundedRectAA(pixels, bufW, bufH, (sh-2)/2, (sh-2)/2, x + 1, cy + 1, sw - 2, sh - 2, 255, 255, 255, 255);
-        FillRoundedRectAA(pixels, bufW, bufH, ts/2, ts/2, x + 5, cy + 4, ts, ts, 120, 120, 120, 255);
-    }
-}
 
 // ===========================================
 // 菜单项内容绘制
@@ -146,7 +133,7 @@ static void RenderMenuContent(MenuData* data) {
             FillRoundedRectAA(pixels, w, h, 6, 6, mx + 6, y + 2, MENU_WIDTH - 12, MENU_ITEM_HEIGHT - 4, 0, 0, 0, 12);
         }
         if (it->type == IOS_MENU_ITEM_SWITCH) {
-            DrawSwitchWin11(pixels, w, h, mx + MENU_WIDTH - SWITCH_WIDTH - MENU_PADDING_RIGHT, y, it->isSwitchOn);
+            DrawSwitchWin11(pixels, w, h, mx + MENU_WIDTH - SWITCH_WIDTH - MENU_PADDING_RIGHT, y, MENU_ITEM_HEIGHT, it->isSwitchOn);
         }
         if (it->hasDividerAfter && i < data->itemCount - 1) {
             int ly = y + MENU_ITEM_HEIGHT;

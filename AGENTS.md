@@ -13,6 +13,8 @@ build.bat
 - **核心模块**: `src/core/timer_core.c/h` - 计时逻辑
 - **UI**: `src/ui/timer_ui.c/h` - 渲染和显示
 - **窗口**: `src/ui/timer_window.c/h` - 窗口管理
+- **托盘**: `src/ui/timer_tray.c/h` + `src/ui/tray_panel.c/h` - 托盘图标与左键快速操控面板
+- **渲染工具**: `src/ui/timer_render_utils.c/h` - 圆角/阴影/开关等像素级抗锯齿绘制（菜单、对话框、面板共用）
 - **对话框**: `src/dialogs/` - 对话框模块 (已拆分为多个文件)
 - **配置**: `src/core/timer_config.c/h` - 配置管理
 - **音频**: `src/audio/timer_audio.c/h` - 音频播放

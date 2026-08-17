@@ -26,6 +26,9 @@ void FillStripedRoundedRectAA(BYTE* pixels, int bufW, int bufH, int rx, int ry, 
 // 绘制抗锯齿的空心描边圆角矩形
 void DrawRoundedRectOutlineAA(BYTE* pixels, int bufW, int bufH, int rx, int ry, int x, int y, int w, int h, int thickness, BYTE r, BYTE g, BYTE b, BYTE a);
 
+// 绘制 Win11 风格开关（rowHeight 为所在行高，用于垂直居中）
+void DrawSwitchWin11(BYTE* pixels, int bufW, int bufH, int x, int y, int rowHeight, BOOL isOn);
+
 #ifdef __cplusplus
 }
 #endif

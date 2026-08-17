@@ -27,6 +27,7 @@ gcc -o build\Timmmer.exe ^
     src\ui\timer_ui.c ^
     src\ui\timer_window.c ^
     src\ui\timer_tray.c ^
+    src\ui\tray_panel.c ^
     src\ui\timer_buffer.c ^
     src\ui\timer_window_utils.c ^
     src\ui\timer_render_utils.c ^

@@ -121,3 +121,16 @@ void DrawRoundedRectOutlineAA(BYTE* pixels, int bufW, int bufH, int rx, int ry, 
         }
     }
 }
+
+void DrawSwitchWin11(BYTE* pixels, int bufW, int bufH, int x, int y, int rowHeight, BOOL isOn) {
+    const int sw = 34, sh = 18, ts = 10;
+    int cy = y + (rowHeight - sh) / 2;
+    if (isOn) {
+        FillRoundedRectAA(pixels, bufW, bufH, sh/2, sh/2, x, cy, sw, sh, 0, 95, 184, 255);
+        FillRoundedRectAA(pixels, bufW, bufH, ts/2, ts/2, x + sw - ts - 4, cy + 4, ts, ts, 255, 255, 255, 255);
+    } else {
+        FillRoundedRectAA(pixels, bufW, bufH, sh/2, sh/2, x, cy, sw, sh, 180, 180, 180, 255);
+        FillRoundedRectAA(pixels, bufW, bufH, (sh-2)/2, (sh-2)/2, x + 1, cy + 1, sw - 2, sh - 2, 255, 255, 255, 255);
+        FillRoundedRectAA(pixels, bufW, bufH, ts/2, ts/2, x + 5, cy + 4, ts, ts, 120, 120, 120, 255);
+    }
+}

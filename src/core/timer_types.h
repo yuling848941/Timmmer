@@ -240,6 +240,13 @@ typedef struct {
     // Hint
     const wchar_t* doubleClickHint;
     const wchar_t* errorPresetMax;
+    // 托盘快速面板
+    const wchar_t* panelQuickStart;
+    const wchar_t* panelShowWindow;
+    const wchar_t* panelRunning;
+    const wchar_t* panelPaused;
+    const wchar_t* panelTimeUp;
+    const wchar_t* panelCustom;
 } MenuTexts;
 
 // 全局状态结构

@@ -47,6 +47,10 @@ void IosMenu_Shutdown(void);
 // 在指定位置显示菜单
 HWND IosMenu_Show(HWND owner, int x, int y, const IosMenuItem* items, int itemCount);
 
+// 把某个开关项的真实状态发布回当前存活的菜单（owner 在命令处理后调用）。
+// 开关项点击后菜单保持打开，由此接口同步显示状态。
+void IosMenu_SetSwitchState(UINT commandId, BOOL isOn);
+
 // 隐藏并销毁菜单
 void IosMenu_Hide(HWND menuHwnd);
 

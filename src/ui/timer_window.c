@@ -481,6 +481,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                         g_timerState.backgroundColor = g_timerState.originalBackgroundColor;
                         InvalidateRect(hwnd, NULL, FALSE);
                     }
+                    // 把真实状态发布回右键菜单：开关项点击后菜单保持打开，原地翻转
+                    IosMenu_SetSwitchState(ID_OVERTIME_COUNT, g_timerState.enableOvertimeCount);
                     break;
 
                 case ID_LANGUAGE:
@@ -695,26 +697,25 @@ static void ShowIosContextMenu(HWND owner, int x, int y) {
     const MenuTexts* texts = GetMenuTexts();
     g_iosMenuItemCount = 0;
 
-    // === 计时控制组 ===
-    if (g_timerState.isRunning) {
-        g_iosMenuItems[g_iosMenuItemCount++] = (IosMenuItem){
-            IOS_MENU_ITEM_NORMAL, texts->startPause, NULL, L"\uE769", FALSE, FALSE, ID_START_PAUSE
-        };
-    } else {
-        g_iosMenuItems[g_iosMenuItemCount++] = (IosMenuItem){
-            IOS_MENU_ITEM_NORMAL, texts->startPause, NULL, L"\uE768", FALSE, FALSE, ID_START_PAUSE
-        };
-    }
+    // 分组原则：一个菜单最多 3~4 组。此前 11 项被切成 6 组（5 条分隔线），
+    // "时间设置""超时正计时"各自单独成组，视觉上很碎。
+    // === 计时控制 ===
+    // 图标和文字随状态一起变（原来文字固定为"开始/暂停"，只有图标变化）
+    g_iosMenuItems[g_iosMenuItemCount++] = (IosMenuItem){
+        IOS_MENU_ITEM_NORMAL, g_timerState.isRunning ? texts->pause : texts->start, NULL,
+        g_timerState.isRunning ? L"\uE769" : L"\uE768", FALSE, FALSE, ID_START_PAUSE
+    };
     g_iosMenuItems[g_iosMenuItemCount++] = (IosMenuItem){
         IOS_MENU_ITEM_NORMAL, texts->reset, NULL, L"\uE777", TRUE, FALSE, ID_RESET
     };
 
-    // === 时间设置组 ===
+    // === 设置 ===
     g_iosMenuItems[g_iosMenuItemCount++] = (IosMenuItem){
-        IOS_MENU_ITEM_NORMAL, texts->timeSettings, NULL, L"\uE823", TRUE, FALSE, ID_SET_TIME
+        IOS_MENU_ITEM_NORMAL, texts->timeSettings, NULL, L"\uE823", FALSE, FALSE, ID_SET_TIME
     };
-
-    // === 设置与资源组 ===
+    g_iosMenuItems[g_iosMenuItemCount++] = (IosMenuItem){
+        IOS_MENU_ITEM_NORMAL, texts->editPresets, NULL, L"\uE70F", FALSE, FALSE, ID_EDIT_PRESETS
+    };
     g_iosMenuItems[g_iosMenuItemCount++] = (IosMenuItem){
         IOS_MENU_ITEM_NORMAL, texts->appearance, NULL, L"\uE771", FALSE, FALSE, ID_APPEARANCE
     };
@@ -722,18 +723,13 @@ static void ShowIosContextMenu(HWND owner, int x, int y) {
         IOS_MENU_ITEM_NORMAL, texts->audioSettings, NULL, L"\uE767", FALSE, FALSE, ID_AUDIO_SETTINGS
     };
     g_iosMenuItems[g_iosMenuItemCount++] = (IosMenuItem){
-        IOS_MENU_ITEM_NORMAL, texts->editPresets, NULL, L"\uE70F", TRUE, FALSE, ID_EDIT_PRESETS
-    };
-
-
-    // === 功能开关组 ===
-    g_iosMenuItems[g_iosMenuItemCount++] = (IosMenuItem){
         IOS_MENU_ITEM_SWITCH, texts->overtimeCount, NULL, L"\uE916", TRUE, g_timerState.enableOvertimeCount, ID_OVERTIME_COUNT
     };
 
-    // === 系统组 ===
+    // === 语言与帮助 ===
+    // 语言项用"标签 + 右侧当前值"表达（原来只有孤零零的 "English"，容易被当成说明文字）
     g_iosMenuItems[g_iosMenuItemCount++] = (IosMenuItem){
-        IOS_MENU_ITEM_NORMAL, texts->language, NULL, L"\uE774", FALSE, FALSE, ID_LANGUAGE
+        IOS_MENU_ITEM_NORMAL, texts->menuLanguageLabel, texts->menuLanguageName, L"\uE774", FALSE, FALSE, ID_LANGUAGE
     };
     g_iosMenuItems[g_iosMenuItemCount++] = (IosMenuItem){
         IOS_MENU_ITEM_NORMAL, texts->about, NULL, L"\uE946", FALSE, FALSE, ID_ABOUT
@@ -741,6 +737,8 @@ static void ShowIosContextMenu(HWND owner, int x, int y) {
     g_iosMenuItems[g_iosMenuItemCount++] = (IosMenuItem){
         IOS_MENU_ITEM_NORMAL, L"GitHub", NULL, L"\uE902", TRUE, FALSE, ID_GITHUB_REPO
     };
+
+    // === 退出 ===
     g_iosMenuItems[g_iosMenuItemCount++] = (IosMenuItem){
         IOS_MENU_ITEM_NORMAL, texts->exit, NULL, L"\uE711", FALSE, FALSE, ID_EXIT
     };

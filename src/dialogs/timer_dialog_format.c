@@ -19,33 +19,9 @@ void ShowFormatDialog() {
 }
 
 void CreateFormatDialog() {
-    // 注册对话框窗口类
-    WNDCLASSW wc = {0};
-    wc.lpfnWndProc = FormatDialogProc;
-    wc.hInstance = GetModuleHandle(NULL);
-    wc.lpszClassName = L"FormatDialogClass";
-    wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
-    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-    
-    RegisterClassW(&wc);
-    
-    const MenuTexts* texts = GetMenuTexts();
-    
-    g_hFormatDialog = CreateWindowW(
-        L"FormatDialogClass",
-        texts->formatTitle,
-        WS_POPUP | WS_VISIBLE | WS_TABSTOP,
-        CW_USEDEFAULT, CW_USEDEFAULT, 400, 300,
-        g_timerState.hMainWnd,
-        NULL,
-        GetModuleHandle(NULL),
-        NULL
-    );
-    
-    if (g_hFormatDialog) {
-        EnableWindow(g_timerState.hMainWnd, FALSE);
-        SetFocus(g_hFormatDialog);
-    }
+    // 统一转调整合设置对话框，避免维护两套格式设置实现
+    ShowIntegratedDialog();
+    g_hFormatDialog = GetIntegratedDialog();
 }
 
 // 更新复选框的启用/禁用状态

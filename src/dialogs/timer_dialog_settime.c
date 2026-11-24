@@ -92,11 +92,11 @@ static HitTestID HitTest(POINT pt) {
     RECT rSecD = {S + 287, S + 108, S + 327, S + 133};
     RECT rSecP = {S + 328, S + 107, S + 354, S + 133};
 
-    // Toggles
-    RECT rTogH = {S + 30, S + 180, S + 205, S + 210};
-    RECT rTogM = {S + 200, S + 180, S + 375, S + 210};
-    RECT rTogS = {S + 30, S + 222, S + 205, S + 252};
-    RECT rTogMS = {S + 200, S + 222, S + 375, S + 252};
+    // Toggles（命中区与视觉行一致：左列止于 S+190，右列起于 S+200，互不重叠且不超出卡片右缘 S+360）
+    RECT rTogH = {S + 30, S + 180, S + 190, S + 210};
+    RECT rTogM = {S + 200, S + 180, S + 360, S + 210};
+    RECT rTogS = {S + 30, S + 222, S + 190, S + 252};
+    RECT rTogMS = {S + 200, S + 222, S + 360, S + 252};
 
     // Buttons (centered, 14px above card bottom)
     RECT rBtnC = {S + 85, S + 300, S + 175, S + 336};
@@ -284,10 +284,10 @@ static void RenderDialogUI(void) {
     const MenuTexts* texts = GetMenuTexts();
 
     // Fonts
-    HFONT hFontTitle = CreateFontW(-20, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
-    HFONT hFontSection = CreateFontW(-14, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
-    HFONT hFontLabel = CreateFontW(-13, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
-    HFONT hFontBtn = CreateFontW(-14, 0, 0, 0, FW_SEMIBOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
+    HFONT hFontTitle = CreateUiFont(19, FW_BOLD, FALSE);
+    HFONT hFontSection = CreateUiFont(13, FW_SEMIBOLD, FALSE);
+    HFONT hFontLabel = CreateUiFont(13, FW_NORMAL, FALSE);
+    HFONT hFontBtn = CreateUiFont(14, FW_SEMIBOLD, FALSE);
     HFONT hFontNum = CreateFontW(-14, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Consolas");
 
     // Title
@@ -302,9 +302,9 @@ static void RenderDialogUI(void) {
     RECT rcHL = {S + 30, cardY + 72, S + 130, cardY + 90};
     RECT rcML = {S + 145, cardY + 72, S + 245, cardY + 90};
     RECT rcSL = {S + 260, cardY + 72, S + 360, cardY + 90};
-    DrawTextSDF(g_hdcBuffer, texts->hours, &rcHL, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_SECONDARY);
-    DrawTextSDF(g_hdcBuffer, texts->minutes, &rcML, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_SECONDARY);
-    DrawTextSDF(g_hdcBuffer, texts->seconds, &rcSL, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_SECONDARY);
+    DrawTextSDF(g_hdcBuffer, texts->hours, &rcHL, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX, hFontLabel, UI_LIGHT_TEXT_SECONDARY);
+    DrawTextSDF(g_hdcBuffer, texts->minutes, &rcML, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX, hFontLabel, UI_LIGHT_TEXT_SECONDARY);
+    DrawTextSDF(g_hdcBuffer, texts->seconds, &rcSL, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX, hFontLabel, UI_LIGHT_TEXT_SECONDARY);
 
     // Spinner buttons and display fields
     wchar_t buf[8];
@@ -520,22 +520,22 @@ static void RenderDialogUI(void) {
     // Row 1: Hour + Minute
     DrawToggleSwitch(g_pBits, DLG_WIDTH, DLG_HEIGHT, swX1, swY1 + (30 - swH) / 2, g_tempShowHours, enH);
     RECT rcTH = {swX1 + swW + 12, swY1, swX1 + 160, swY1 + 30};
-    DrawTextSDF(g_hdcBuffer, texts->hours, &rcTH, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel,
+    DrawTextSDF(g_hdcBuffer, texts->hours, &rcTH, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX, hFontLabel,
         enH ? UI_LIGHT_TEXT_PRIMARY : UI_LIGHT_TEXT_DISABLED);
 
     DrawToggleSwitch(g_pBits, DLG_WIDTH, DLG_HEIGHT, swX2, swY1 + (30 - swH) / 2, g_tempShowMinutes, enM);
     RECT rcTM = {swX2 + swW + 12, swY1, swX2 + 160, swY1 + 30};
-    DrawTextSDF(g_hdcBuffer, texts->minutes, &rcTM, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel,
+    DrawTextSDF(g_hdcBuffer, texts->minutes, &rcTM, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX, hFontLabel,
         enM ? UI_LIGHT_TEXT_PRIMARY : UI_LIGHT_TEXT_DISABLED);
 
     // Row 2: Second + Millisecond
     DrawToggleSwitch(g_pBits, DLG_WIDTH, DLG_HEIGHT, swX1, swY2 + (30 - swH) / 2, g_tempShowSeconds, enS);
     RECT rcTS = {swX1 + swW + 12, swY2, swX1 + 160, swY2 + 30};
-    DrawTextSDF(g_hdcBuffer, texts->seconds, &rcTS, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_PRIMARY);
+    DrawTextSDF(g_hdcBuffer, texts->seconds, &rcTS, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX, hFontLabel, UI_LIGHT_TEXT_PRIMARY);
 
     DrawToggleSwitch(g_pBits, DLG_WIDTH, DLG_HEIGHT, swX2, swY2 + (30 - swH) / 2, g_tempShowMilliseconds, enMS);
     RECT rcTMS = {swX2 + swW + 12, swY2, swX2 + 160, swY2 + 30};
-    DrawTextSDF(g_hdcBuffer, texts->milliseconds, &rcTMS, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel,
+    DrawTextSDF(g_hdcBuffer, texts->milliseconds, &rcTMS, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX, hFontLabel,
         enMS ? UI_LIGHT_TEXT_PRIMARY : UI_LIGHT_TEXT_DISABLED);
 
     // Buttons (centered)
@@ -556,17 +556,6 @@ static void RenderDialogUI(void) {
         1, GetRValue(UI_LIGHT_BORDER), GetGValue(UI_LIGHT_BORDER), GetBValue(UI_LIGHT_BORDER), 255);
     RECT rBtnXT = rBtnX;
     DrawTextSDF(g_hdcBuffer, texts->cancel, &rBtnXT, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, UI_LIGHT_TEXT_PRIMARY);
-
-    // Fix alpha for chevron/text lines - ensure full opacity on drawn areas
-    // (GDI-drawn text on DIB may have alpha < 255; fix for crisp display)
-    for (int yy = 0; yy < DLG_HEIGHT; yy++) {
-        BYTE* row = g_pBits + yy * DLG_WIDTH * 4;
-        for (int xx = 0; xx < DLG_WIDTH; xx++) {
-            if (row[xx * 4 + 3] > 0 && row[xx * 4 + 3] < 255) {
-                // text areas from DrawThemeTextEx: boost alpha for readability
-            }
-        }
-    }
 
     DeleteObject(hFontTitle);
     DeleteObject(hFontSection);
@@ -626,6 +615,8 @@ LRESULT CALLBACK SetTimeDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             }
             /* Disable hover tracking while editing */
             if (g_editingField != EDIT_NONE) return 0;
+            TRACKMOUSEEVENT tme = {sizeof(tme), TME_LEAVE, hwnd, 0};
+            TrackMouseEvent(&tme);
             HitTestID hit = HitTest(pt);
             if (hit != g_hoverId) {
                 g_hoverId = hit;

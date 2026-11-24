@@ -109,7 +109,10 @@ static const MenuTexts g_menuTexts[2] = {
         L"运行中",
         L"已暂停",
         L"时间到",
-        L"自定义…"
+        L"自定义…",
+        // 右键菜单
+        L"语言",
+        L"中文"
     },
     // 英文
     {
@@ -181,7 +184,10 @@ static const MenuTexts g_menuTexts[2] = {
         L"Running",
         L"Paused",
         L"Time's up",
-        L"Custom..."
+        L"Custom...",
+        // Context menu
+        L"Language",
+        L"English"
     }
 };
 

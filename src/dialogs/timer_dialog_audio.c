@@ -51,19 +51,27 @@ static BOOL g_isDraggingDlg = FALSE;
 static POINT g_dragStartScreen;
 static RECT g_dlgStartRect;
 
+// 统一内容边距：所有行共用左右边界，避免各行右缘参差不齐
+#define CONTENT_L   (DLG_SHADOW + 28)                 // 48
+#define CONTENT_R   (DLG_WIDTH - DLG_SHADOW - 28)     // 452
+#define BTN_H       36
+#define BTN_W       96
+#define BTN_GAP     10
+#define BROWSE_W    100
+
 // Segment layout
-static RECT rcSegmented = {DLG_SHADOW + 50, DLG_SHADOW + 130, DLG_SHADOW + 450, DLG_SHADOW + 165};
+static RECT rcSegmented = {CONTENT_L, DLG_SHADOW + 124, CONTENT_R, DLG_SHADOW + 160};
 
-// Toggle layout
-static RECT rcToggleSwitch = {DLG_SHADOW + 380 - 15 - 34, DLG_SHADOW + 58, DLG_SHADOW + 380 - 15, DLG_SHADOW + 58 + 18};
+// Toggle layout（开关右缘对齐 CONTENT_R）
+static RECT rcToggleSwitch = {CONTENT_R - 34, DLG_SHADOW + 55, CONTENT_R, DLG_SHADOW + 73};
 
-// Input layout
-static RECT rcInputBox = {DLG_SHADOW + 50, DLG_SHADOW + 220, DLG_SHADOW + 400, DLG_SHADOW + 255};
-static RECT rcBrowseBtn = {DLG_SHADOW + 410, DLG_SHADOW + 220, DLG_SHADOW + 450, DLG_SHADOW + 255};
+// Input layout（浏览按钮加宽到 100px，输入框相应缩短，二者留 10px 间隙）
+static RECT rcBrowseBtn = {CONTENT_R - BROWSE_W, DLG_SHADOW + 210, CONTENT_R, DLG_SHADOW + 246};
+static RECT rcInputBox  = {CONTENT_L, DLG_SHADOW + 210, CONTENT_R - BROWSE_W - 10, DLG_SHADOW + 246};
 
-// Button layout
-static RECT rcBtnOk     = {DLG_SHADOW + 310, DLG_SHADOW + 297, DLG_SHADOW + 390, DLG_SHADOW + 333};
-static RECT rcBtnCancel = {DLG_SHADOW + 400, DLG_SHADOW + 297, DLG_SHADOW + 460, DLG_SHADOW + 333};
+// Button layout（右对齐，底部留 24px）
+static RECT rcBtnCancel = {CONTENT_R - BTN_W, DLG_SHADOW + 300, CONTENT_R, DLG_SHADOW + 300 + BTN_H};
+static RECT rcBtnOk     = {CONTENT_R - BTN_W * 2 - BTN_GAP, DLG_SHADOW + 300, CONTENT_R - BTN_W - BTN_GAP, DLG_SHADOW + 300 + BTN_H};
 
 // ============================================
 // Drawing Helpers
@@ -96,22 +104,22 @@ static void RenderDialogUI() {
 
     const MenuTexts* texts = GetMenuTexts();
 
-    HFONT hFontLabel = CreateFontW(16, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
-    HFONT hFontSmall  = CreateFontW(14, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
-    HFONT hFontBtn    = CreateFontW(16, 0, 0, 0, FW_SEMIBOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
-    HFONT hFontIcon   = CreateFontW(16, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe MDL2 Assets");
+    HFONT hFontLabel = CreateUiFont(15, FW_NORMAL, FALSE);
+    HFONT hFontSmall  = CreateUiFont(13, FW_NORMAL, FALSE);
+    HFONT hFontBtn    = CreateUiFont(14, FW_SEMIBOLD, FALSE);
+    HFONT hFontIcon   = CreateFontW(-16, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, ANTIALIASED_QUALITY, 0, GetIconFontFamily());
 
     // ---- Toggle Switch ----
     // Label "启用音频提示"
-    RECT rcToggleLabel = {DLG_SHADOW + 50, DLG_SHADOW + 58, DLG_SHADOW + 200, DLG_SHADOW + 78};
-    DrawTextSDF(g_hdcBuffer, texts->enableAudio, &rcToggleLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_PRIMARY);
+    RECT rcToggleLabel = {CONTENT_L, DLG_SHADOW + 52, CONTENT_R - 60, DLG_SHADOW + 76};
+    DrawTextSDF(g_hdcBuffer, texts->enableAudio, &rcToggleLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS, hFontLabel, UI_LIGHT_TEXT_PRIMARY);
     // Switch control
     DrawSwitchWin11(g_pBits, DLG_WIDTH, DLG_HEIGHT, rcToggleSwitch.left, DLG_SHADOW + 55,
                     rcToggleSwitch.bottom - rcToggleSwitch.top, g_tempEnableAudio);
 
     // ---- Segment: 音频语言 ----
-    RECT rcSegLabel = {DLG_SHADOW + 50, DLG_SHADOW + 105, DLG_SHADOW + 200, DLG_SHADOW + 125};
-    DrawTextSDF(g_hdcBuffer, texts->audioLanguage, &rcSegLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontSmall, UI_LIGHT_TEXT_PRIMARY);
+    RECT rcSegLabel = {CONTENT_L, DLG_SHADOW + 100, CONTENT_R, DLG_SHADOW + 120};
+    DrawTextSDF(g_hdcBuffer, texts->audioLanguage, &rcSegLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS, hFontSmall, UI_LIGHT_TEXT_PRIMARY);
 
     // Segmented Control background
     BOOL segHover = (g_hoverId == HIT_SEGMENT_CH || g_hoverId == HIT_SEGMENT_EN || g_hoverId == HIT_SEGMENT_CUSTOM);
@@ -122,7 +130,8 @@ static void RenderDialogUI() {
 
     // Three segments (equal width)
     int segW = (rcSegmented.right - rcSegmented.left) / 3;
-    const wchar_t* segLabels[3] = {L"中文", L"英文", L"自定义"};
+    BOOL english = (g_timerState.currentLanguage == TIMER_LANG_ENGLISH);
+    const wchar_t* segLabels[3] = { english ? L"Chinese" : L"中文", english ? L"English" : L"英文", english ? L"Custom" : L"自定义" };
     for (int i = 0; i < 3; i++) {
         if (i == g_tempAudioType) {
             // Selected: blue pill
@@ -146,8 +155,8 @@ static void RenderDialogUI() {
     }
 
     // ---- Input: 音频文件路径 ----
-    RECT rcInputLabel = {DLG_SHADOW + 50, DLG_SHADOW + 190, DLG_SHADOW + 250, DLG_SHADOW + 210};
-    DrawTextSDF(g_hdcBuffer, L"音频文件路径", &rcInputLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontSmall, UI_LIGHT_TEXT_PRIMARY);
+    RECT rcInputLabel = {CONTENT_L, DLG_SHADOW + 186, CONTENT_R, DLG_SHADOW + 206};
+    DrawTextSDF(g_hdcBuffer, english ? L"Audio file path" : L"音频文件路径", &rcInputLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS, hFontSmall, UI_LIGHT_TEXT_PRIMARY);
 
     // Input box
     BOOL browseHover = (g_hoverId == HIT_BROWSE);
@@ -159,11 +168,11 @@ static void RenderDialogUI() {
     DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, rcInputBox.left, rcInputBox.top, rcInputBox.right - rcInputBox.left, rcInputBox.bottom - rcInputBox.top,
         2, inputEnabled ? 200 : 220, inputEnabled ? 200 : 220, inputEnabled ? 200 : 220, inputEnabled ? 80 : 40);
 
-    // Path text
-    const wchar_t* pathText = wcslen(g_tempCustomPath) > 0 ? g_tempCustomPath : L"Select a custom audio file...";
+    // Path text（长路径用路径省略号，保留文件名尾部）
+    const wchar_t* pathText = wcslen(g_tempCustomPath) > 0 ? g_tempCustomPath : (english ? L"Select a custom audio file..." : L"选择自定义音频文件...");
     COLORREF pathColor = (wcslen(g_tempCustomPath) > 0) ? UI_LIGHT_TEXT_PRIMARY : UI_LIGHT_TEXT_DISABLED;
     RECT rcPathText = {rcInputBox.left + 12, rcInputBox.top, rcInputBox.right - 12, rcInputBox.bottom};
-    DrawTextSDF(g_hdcBuffer, pathText, &rcPathText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontSmall, pathColor);
+    DrawTextSDF(g_hdcBuffer, pathText, &rcPathText, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_PATH_ELLIPSIS | DT_NOPREFIX, hFontSmall, pathColor);
 
     // Browse button
     BOOL btnHover = (g_hoverId == HIT_BROWSE);
@@ -176,14 +185,12 @@ static void RenderDialogUI() {
             2, btnHover ? 150 : 200, btnHover ? 150 : 200, btnHover ? 150 : 200, 100);
     }
 
-    // Folder icon + "浏览"
-    RECT rcBrowseInner = {rcBrowseBtn.left + 8, rcBrowseBtn.top, rcBrowseBtn.right - 8, rcBrowseBtn.bottom};
+    // Folder icon + "浏览"（按钮加宽后图标与文字都有充足空间）
     if (inputEnabled) {
-        DrawTextSDF(g_hdcBuffer, L"\xE8B7", &rcBrowseInner, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontIcon, UI_LIGHT_TEXT_SECONDARY);
-    }
-    RECT rcBrowseText = {rcBrowseBtn.left + 28, rcBrowseBtn.top, rcBrowseBtn.right - 8, rcBrowseBtn.bottom};
-    if (inputEnabled) {
-        DrawTextSDF(g_hdcBuffer, texts->browseAudio, &rcBrowseText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontSmall, UI_LIGHT_TEXT_SECONDARY);
+        RECT rcBrowseIcon = {rcBrowseBtn.left + 12, rcBrowseBtn.top, rcBrowseBtn.left + 30, rcBrowseBtn.bottom};
+        DrawTextSDF(g_hdcBuffer, L"\xE8B7", &rcBrowseIcon, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontIcon, UI_LIGHT_TEXT_SECONDARY);
+        RECT rcBrowseText = {rcBrowseBtn.left + 32, rcBrowseBtn.top, rcBrowseBtn.right - 10, rcBrowseBtn.bottom};
+        DrawTextSDF(g_hdcBuffer, texts->browseAudio, &rcBrowseText, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX, hFontSmall, UI_LIGHT_TEXT_SECONDARY);
     }
 
     // ---- Action Buttons ----
@@ -296,10 +303,22 @@ static LRESULT CALLBACK ModernAudioDialogProc(HWND hwnd, UINT msg, WPARAM wParam
                 return 0;
             }
 
+            // 请求离开通知，鼠标移出窗口时清掉悬停态
+            TRACKMOUSEEVENT tme = {sizeof(tme), TME_LEAVE, hwnd, 0};
+            TrackMouseEvent(&tme);
+
             // Hover
             HitTestID hit = HitTest(pt);
             if (hit != g_hoverId) {
                 g_hoverId = hit;
+                UpdateAudioLayeredWindow();
+            }
+            return 0;
+        }
+
+        case WM_MOUSELEAVE: {
+            if (g_hoverId != HIT_NONE) {
+                g_hoverId = HIT_NONE;
                 UpdateAudioLayeredWindow();
             }
             return 0;
@@ -316,57 +335,17 @@ static LRESULT CALLBACK ModernAudioDialogProc(HWND hwnd, UINT msg, WPARAM wParam
                 GetWindowRect(hwnd, &g_dlgStartRect);
                 SetCapture(hwnd);
             } else if (hit == HIT_TOGGLE) {
-                if (g_tempEnableAudio) {
-                    // Don't allow turning off by clicking toggle (match old behavior: checkbox toggles)
-                    // Actually let's allow toggle
-                }
                 g_tempEnableAudio = !g_tempEnableAudio;
                 UpdateAudioLayeredWindow();
                 return 0;
             } else if (hit == HIT_SEGMENT_CH || hit == HIT_SEGMENT_EN || hit == HIT_SEGMENT_CUSTOM) {
-                int newType = (hit == HIT_SEGMENT_CH) ? 0 : (hit == HIT_SEGMENT_EN ? 1 : 2);
-                g_tempAudioType = newType;
+                g_tempAudioType = (hit == HIT_SEGMENT_CH) ? 0 : (hit == HIT_SEGMENT_EN ? 1 : 2);
                 UpdateAudioLayeredWindow();
                 return 0;
-            } else if (hit == HIT_BROWSE) {
-                // Only allow when enabled + custom selected
-                if (g_tempEnableAudio && g_tempAudioType == 2) {
-                    OPENFILENAMEW ofn = {0};
-                    wchar_t szFile[MAX_PATH] = {0};
-                    ofn.lStructSize = sizeof(ofn);
-                    ofn.hwndOwner = hwnd;
-                    ofn.lpstrFile = szFile;
-                    ofn.nMaxFile = sizeof(szFile) / sizeof(wchar_t);
-                    ofn.lpstrFilter = L"音频文件\0*.wav;*.mp3;*.aac;*.wma;*.ogg\0WAV文件\0*.wav\0MP3文件\0*.mp3\0所有文件\0*.*\0";
-                    ofn.nFilterIndex = 1;
-                    ofn.lpstrFileTitle = NULL;
-                    ofn.nMaxFileTitle = 0;
-                    ofn.lpstrInitialDir = NULL;
-                    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
-
-                    if (GetOpenFileNameW(&ofn)) {
-                        wcscpy_s(g_tempCustomPath, MAX_PATH, szFile);
-                        UpdateAudioLayeredWindow();
-                    }
-                }
-                return 0;
-            } else if (hit == HIT_BTN_OK) {
-                // Save & close
-                g_timerState.enableAudioAlert = g_tempEnableAudio;
-                g_timerState.useCustomAudio = (g_tempAudioType == 2);
-                g_timerState.useChineseAudio = (g_tempAudioType == 0);
-                wcscpy_s(g_timerState.customAudioPath, MAX_PATH, g_tempCustomPath);
-                SaveAudioConfig();
-                DestroyWindow(hwnd);
-                return 0;
-            } else if (hit == HIT_BTN_CANCEL) {
-                // Restore original
-                g_timerState.enableAudioAlert = g_originalEnableAudio;
-                g_timerState.useCustomAudio = (g_originalAudioType == 2);
-                g_timerState.useChineseAudio = (g_originalAudioType == 0);
-                wcscpy_s(g_timerState.customAudioPath, MAX_PATH, g_originalCustomPath);
-                SaveAudioConfig();
-                DestroyWindow(hwnd);
+            } else if (hit == HIT_BROWSE || hit == HIT_BTN_OK || hit == HIT_BTN_CANCEL) {
+                // 动作按钮：按下只记录并捕获，抬起命中同一按钮才执行（可拖出取消）
+                SetCapture(hwnd);
+                UpdateAudioLayeredWindow();
                 return 0;
             }
 
@@ -378,7 +357,55 @@ static LRESULT CALLBACK ModernAudioDialogProc(HWND hwnd, UINT msg, WPARAM wParam
             if (g_isDraggingDlg) {
                 g_isDraggingDlg = FALSE;
                 ReleaseCapture();
+                g_pressedId = HIT_NONE;
+                UpdateAudioLayeredWindow();
+                return 0;
             }
+
+            POINT pt = {(short)LOWORD(lParam), (short)HIWORD(lParam)};
+            HitTestID hit = HitTest(pt);
+            HitTestID pressed = g_pressedId;
+            g_pressedId = HIT_NONE;
+            if (GetCapture() == hwnd) ReleaseCapture();
+
+            // 仅当抬起仍命中按下的那个动作按钮时才执行
+            if (hit == pressed) {
+                if (pressed == HIT_BROWSE) {
+                    if (g_tempEnableAudio && g_tempAudioType == 2) {
+                        OPENFILENAMEW ofn = {0};
+                        wchar_t szFile[MAX_PATH] = {0};
+                        ofn.lStructSize = sizeof(ofn);
+                        ofn.hwndOwner = hwnd;
+                        ofn.lpstrFile = szFile;
+                        ofn.nMaxFile = sizeof(szFile) / sizeof(wchar_t);
+                        ofn.lpstrFilter = L"音频文件\0*.wav;*.mp3;*.aac;*.wma;*.ogg\0WAV文件\0*.wav\0MP3文件\0*.mp3\0所有文件\0*.*\0";
+                        ofn.nFilterIndex = 1;
+                        ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+                        if (GetOpenFileNameW(&ofn)) {
+                            wcscpy_s(g_tempCustomPath, MAX_PATH, szFile);
+                        }
+                    }
+                } else if (pressed == HIT_BTN_OK) {
+                    g_timerState.enableAudioAlert = g_tempEnableAudio;
+                    g_timerState.useCustomAudio = (g_tempAudioType == 2);
+                    g_timerState.useChineseAudio = (g_tempAudioType == 0);
+                    wcscpy_s(g_timerState.customAudioPath, MAX_PATH, g_tempCustomPath);
+                    SaveAudioConfig();
+                    DestroyWindow(hwnd);
+                    return 0;
+                } else if (pressed == HIT_BTN_CANCEL) {
+                    // 临时态从未写入全局，取消只需关闭，无需回写磁盘
+                    DestroyWindow(hwnd);
+                    return 0;
+                }
+            }
+            UpdateAudioLayeredWindow();
+            return 0;
+        }
+
+        case WM_CAPTURECHANGED: {
+            // 捕获被夺走（如弹出文件对话框）：清掉按下/拖拽态，避免残留
+            g_isDraggingDlg = FALSE;
             g_pressedId = HIT_NONE;
             UpdateAudioLayeredWindow();
             return 0;

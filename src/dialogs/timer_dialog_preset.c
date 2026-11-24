@@ -13,13 +13,14 @@
 #define PRESET_MAX_MINUTES 999
 
 // Layout rects (relative to window, already include shadow offset)
+// 内容右缘统一为 DLG_WIDTH-DLG_SHADOW-20 = 430，添加行/列表/按钮共用，避免参差
 static RECT rcCard       = {DLG_SHADOW, DLG_SHADOW, DLG_WIDTH - DLG_SHADOW, DLG_HEIGHT - DLG_SHADOW};
-static RECT rcInput      = {DLG_SHADOW + 20, DLG_SHADOW + 90, DLG_SHADOW + 350, DLG_SHADOW + 126};
-static RECT rcBtnAdd     = {DLG_SHADOW + 360, DLG_SHADOW + 90, DLG_SHADOW + 420, DLG_SHADOW + 126};
-static RECT rcListArea   = {DLG_SHADOW + 20, DLG_SHADOW + 194, DLG_SHADOW + 400, DLG_SHADOW + 400};
-static RECT rcBtnOK      = {DLG_SHADOW + 240, DLG_SHADOW + 410, DLG_SHADOW + 320, DLG_SHADOW + 444};
-static RECT rcBtnCancel  = {DLG_SHADOW + 330, DLG_SHADOW + 410, DLG_SHADOW + 400, DLG_SHADOW + 444};
-static RECT rcScrollbar  = {DLG_SHADOW + 392, DLG_SHADOW + 194, DLG_SHADOW + 400, DLG_SHADOW + 400};
+static RECT rcInput      = {DLG_SHADOW + 20, DLG_SHADOW + 90, DLG_SHADOW + 330, DLG_SHADOW + 126};
+static RECT rcBtnAdd     = {DLG_SHADOW + 340, DLG_SHADOW + 90, DLG_SHADOW + 400, DLG_SHADOW + 126};
+static RECT rcListArea   = {DLG_SHADOW + 20, DLG_SHADOW + 194, DLG_SHADOW + 400, DLG_SHADOW + 378};
+static RECT rcBtnOK      = {DLG_SHADOW + 240, DLG_SHADOW + 416, DLG_SHADOW + 320, DLG_SHADOW + 450};
+static RECT rcBtnCancel  = {DLG_SHADOW + 330, DLG_SHADOW + 416, DLG_SHADOW + 400, DLG_SHADOW + 450};
+static RECT rcScrollbar  = {DLG_SHADOW + 392, DLG_SHADOW + 194, DLG_SHADOW + 400, DLG_SHADOW + 378};
 
 #define ITEM_HEIGHT  36
 #define ITEM_GAP     4
@@ -183,11 +184,11 @@ static void RenderPresetDialog(void) {
 
     const MenuTexts* texts = GetMenuTexts();
 
-    HFONT hFontTitle = CreateFontW(18, 0, 0, 0, FW_SEMIBOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
-    HFONT hFontLabel = CreateFontW(14, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
-    HFONT hFontBtn   = CreateFontW(15, 0, 0, 0, FW_SEMIBOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
-    HFONT hFontItem  = CreateFontW(14, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
-    HFONT hFontHint  = CreateFontW(12, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
+    HFONT hFontTitle = CreateUiFont(17, FW_SEMIBOLD, FALSE);
+    HFONT hFontLabel = CreateUiFont(13, FW_NORMAL, FALSE);
+    HFONT hFontBtn   = CreateUiFont(14, FW_SEMIBOLD, FALSE);
+    HFONT hFontItem  = CreateUiFont(13, FW_NORMAL, FALSE);
+    HFONT hFontHint  = CreateUiFont(11, FW_NORMAL, FALSE);
 
     // ---- Title ----
     RECT rcTitle = {rcCard.left + 20, rcCard.top + 20, rcCard.right - 20, rcCard.top + 55};
@@ -378,9 +379,9 @@ static void RenderPresetDialog(void) {
     RECT rcCancelT = rcBtnCancel;
     DrawTextSDF(g_hdcBuffer, texts->cancel, &rcCancelT, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, UI_LIGHT_TEXT_PRIMARY);
 
-    // ---- Hint text ----
-    RECT rcHint = {rcCard.left + 20, rcBtnOK.top, rcBtnOK.left - 10, rcBtnOK.bottom};
-    DrawTextSDF(g_hdcBuffer, texts->doubleClickHint, &rcHint, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontHint, UI_LIGHT_TEXT_SECONDARY);
+    // ---- Hint text ----（独占整行，宽度足够容纳完整提示，不再挤在按钮旁被裁切）
+    RECT rcHint = {rcCard.left + 20, DLG_SHADOW + 386, rcCard.right - 20, DLG_SHADOW + 406};
+    DrawTextSDF(g_hdcBuffer, texts->doubleClickHint, &rcHint, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX, hFontHint, UI_LIGHT_TEXT_SECONDARY);
 
     // ---- Inline error message below input ----
     if (g_showToast) {
@@ -832,24 +833,46 @@ LRESULT CALLBACK PresetEditDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
         case WM_KEYDOWN: {
             if (wParam == VK_ESCAPE) {
                 if (g_editingIndex >= 0) {
-                    // Escape while editing a row: cancel that edit only
+                    // 正在编辑某行：Esc 只取消该行编辑
                     CancelInlineEdit();
                     UpdatePresetWindow();
                     return 0;
                 }
-                // No active edit: Escape closes the dialog WITH rollback
+                if (g_inputFocused) {
+                    // 焦点在顶部添加框：Esc 只清空并失焦，不关闭对话框
+                    g_inputFocused = FALSE;
+                    g_cursorVisible = FALSE;
+                    g_inputBuf[0] = L'\0';
+                    UpdatePresetWindow();
+                    return 0;
+                }
+                // 无编辑/输入焦点：Esc 关闭并回滚
                 DoCancelRollback(hwnd);
                 return 0;
             }
             if (wParam == VK_RETURN) {
-                // Enter with no field focused: behave like OK
-                if (g_editingIndex >= 0) { CommitInlineEdit(); }
+                if (g_editingIndex >= 0) {
+                    // 行编辑中：回车提交该行，保持对话框打开
+                    CommitInlineEdit();
+                    RefreshList();
+                    return 0;
+                }
+                if (g_inputFocused) {
+                    // 添加框中：交给 WM_CHAR 执行"添加"，不要在此关闭对话框
+                    return 0;
+                }
+                // 无焦点：回车等同确定
                 SavePresetConfig();
                 DestroyWindow(hwnd);
                 return 0;
             }
             break;
         }
+
+        case WM_CLOSE:
+            // 外部关闭（Alt+F4 等）与取消一致：回滚未提交的编辑
+            DoCancelRollback(hwnd);
+            return 0;
 
         case WM_DESTROY: {
             KillTimer(hwnd, 2);

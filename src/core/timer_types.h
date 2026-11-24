@@ -247,6 +247,9 @@ typedef struct {
     const wchar_t* panelPaused;
     const wchar_t* panelTimeUp;
     const wchar_t* panelCustom;
+    // 右键菜单
+    const wchar_t* menuLanguageLabel;   // 菜单项标签："语言"
+    const wchar_t* menuLanguageName;    // 右侧辅助文本：当前语言名
 } MenuTexts;
 
 // 全局状态结构

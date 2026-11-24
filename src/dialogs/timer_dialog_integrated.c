@@ -1,4 +1,5 @@
 #include "timer_dialog_internal.h"
+#include "timer_render_utils.h"
 
 static HWND g_hIntegratedHoverBtn = NULL;
 static HWND g_hIntegratedPressedBtn = NULL;
@@ -12,6 +13,40 @@ static HFONT g_hIntegratedFontTitle = NULL;
 static HFONT g_hIntegratedFontSection = NULL;
 static HFONT g_hIntegratedFontNormal = NULL;
 static HFONT g_hIntegratedFontLabel = NULL;
+static HFONT g_hIntegratedFontBtn = NULL;
+
+// 按钮子类：BS_OWNERDRAW 子按钮上的鼠标消息由子窗口自己接收，
+// 父窗口 WM_MOUSEMOVE 收不到，故在子窗口里跟踪悬停并重绘自身。
+static WNDPROC g_origIntegratedBtnProc = NULL;
+static LRESULT CALLBACK IntegratedBtnProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    switch (m) {
+        case WM_MOUSEMOVE:
+            if (g_hIntegratedHoverBtn != h) {
+                g_hIntegratedHoverBtn = h;
+                InvalidateRect(h, NULL, FALSE);
+            }
+            { TRACKMOUSEEVENT tme = {sizeof(tme), TME_LEAVE, h, 0}; TrackMouseEvent(&tme); }
+            break;
+        case WM_MOUSELEAVE:
+            if (g_hIntegratedHoverBtn == h) {
+                g_hIntegratedHoverBtn = NULL;
+                InvalidateRect(h, NULL, FALSE);
+            }
+            break;
+        case WM_DESTROY:
+            if (g_hIntegratedHoverBtn == h) g_hIntegratedHoverBtn = NULL;
+            break;
+    }
+    return CallWindowProcW(g_origIntegratedBtnProc, h, m, w, l);
+}
+static BOOL CALLBACK SubclassIntegratedBtnEnum(HWND h, LPARAM lp) {
+    (void)lp;
+    if (GetWindowLongW(h, GWL_STYLE) & BS_OWNERDRAW) {
+        if (!g_origIntegratedBtnProc) g_origIntegratedBtnProc = (WNDPROC)GetWindowLongPtrW(h, GWLP_WNDPROC);
+        SetWindowLongPtrW(h, GWLP_WNDPROC, (LONG_PTR)IntegratedBtnProc);
+    }
+    return TRUE;
+}
 
 HWND GetIntegratedDialog(void) {
     return g_hIntegratedDialog;
@@ -118,11 +153,12 @@ LRESULT CALLBACK IntegratedDialogProc(HWND hDlg, UINT message, WPARAM wParam, LP
         case WM_CREATE: {
             const MenuTexts* texts = GetMenuTexts();
             
-            // 创建字体
-            g_hIntegratedFontTitle = CreateFontW(24, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
-            g_hIntegratedFontSection = CreateFontW(18, 0, 0, 0, FW_BOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
-            g_hIntegratedFontNormal = CreateFontW(17, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
-            g_hIntegratedFontLabel = CreateFontW(15, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
+            // 创建字体（统一 UI 字体族，负 em 高度）
+            g_hIntegratedFontTitle = CreateUiFont(22, FW_BOLD, FALSE);
+            g_hIntegratedFontSection = CreateUiFont(16, FW_SEMIBOLD, FALSE);
+            g_hIntegratedFontNormal = CreateUiFont(15, FW_NORMAL, FALSE);
+            g_hIntegratedFontLabel = CreateUiFont(13, FW_NORMAL, FALSE);
+            g_hIntegratedFontBtn = CreateUiFont(14, FW_SEMIBOLD, FALSE);
 
             // 1. 标题
             HWND hMainTitle = CreateWindowW(L"STATIC", texts->integratedTitle, WS_VISIBLE | WS_CHILD, 30, 25, 300, 35, hDlg, NULL, GetModuleHandle(NULL), NULL);
@@ -190,6 +226,8 @@ LRESULT CALLBACK IntegratedDialogProc(HWND hDlg, UINT message, WPARAM wParam, LP
 
             UpdateIntegratedCheckboxStates(hDlg);
             UpdateTimeInputStates(hDlg);
+            // 给所有自绘按钮挂子类，悬停/离开由子窗口自身可靠跟踪
+            EnumChildWindows(hDlg, SubclassIntegratedBtnEnum, 0);
             return 0;
         }
 
@@ -270,9 +308,11 @@ LRESULT CALLBACK IntegratedDialogProc(HWND hDlg, UINT message, WPARAM wParam, LP
                 BOOL isPlus = (dis->CtlID == ID_BTN_HRS_PLUS || dis->CtlID == ID_BTN_MIN_PLUS || dis->CtlID == ID_BTN_SEC_PLUS);
                 COLORREF bgColor = isPressed ? UI_LIGHT_BUTTON_PRESSED : (isHover ? UI_LIGHT_BUTTON_HOVER : UI_LIGHT_BG_SECONDARY);
                 DrawRoundRect(dis->hDC, &dis->rcItem, 4, bgColor, UI_LIGHT_BORDER, 1);
+                HFONT oldF = (HFONT)SelectObject(dis->hDC, g_hIntegratedFontNormal);
                 SetBkMode(dis->hDC, TRANSPARENT);
                 SetTextColor(dis->hDC, UI_LIGHT_TEXT_SECONDARY);
                 DrawTextW(dis->hDC, isPlus ? L"+" : L"-", -1, &dis->rcItem, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                SelectObject(dis->hDC, oldF);
                 return TRUE;
             }
 
@@ -305,9 +345,11 @@ LRESULT CALLBACK IntegratedDialogProc(HWND hDlg, UINT message, WPARAM wParam, LP
 
                 // 文本
                 RECT tExt = dis->rcItem; tExt.left += 60;
+                HFONT oldF = (HFONT)SelectObject(dis->hDC, g_hIntegratedFontLabel);
                 SetBkMode(dis->hDC, TRANSPARENT);
                 SetTextColor(dis->hDC, isEnabled ? UI_LIGHT_TEXT_PRIMARY : UI_LIGHT_TEXT_DISABLED);
-                DrawTextW(dis->hDC, label, -1, &tExt, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                DrawTextW(dis->hDC, label, -1, &tExt, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+                SelectObject(dis->hDC, oldF);
                 return TRUE;
             }
 
@@ -318,9 +360,11 @@ LRESULT CALLBACK IntegratedDialogProc(HWND hDlg, UINT message, WPARAM wParam, LP
                 if (isPressed) fill = isOK ? UI_PRIMARY_PRESSED : UI_LIGHT_BUTTON_PRESSED;
                 else if (isHover) fill = isOK ? UI_PRIMARY_HOVER : UI_LIGHT_BUTTON_HOVER;
                 DrawRoundRect(dis->hDC, &dis->rcItem, 8, fill, UI_LIGHT_BORDER, 1);
+                HFONT oldF = (HFONT)SelectObject(dis->hDC, g_hIntegratedFontBtn);
                 SetTextColor(dis->hDC, isOK ? RGB(255, 255, 255) : UI_LIGHT_TEXT_PRIMARY);
                 SetBkMode(dis->hDC, TRANSPARENT);
-                DrawTextW(dis->hDC, isOK ? texts->ok : texts->cancel, -1, &dis->rcItem, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                DrawTextW(dis->hDC, isOK ? texts->ok : texts->cancel, -1, &dis->rcItem, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+                SelectObject(dis->hDC, oldF);
                 return TRUE;
             }
             return TRUE;
@@ -398,6 +442,8 @@ LRESULT CALLBACK IntegratedDialogProc(HWND hDlg, UINT message, WPARAM wParam, LP
             if (g_hIntegratedFontSection) { DeleteObject(g_hIntegratedFontSection); g_hIntegratedFontSection = NULL; }
             if (g_hIntegratedFontNormal) { DeleteObject(g_hIntegratedFontNormal); g_hIntegratedFontNormal = NULL; }
             if (g_hIntegratedFontLabel) { DeleteObject(g_hIntegratedFontLabel); g_hIntegratedFontLabel = NULL; }
+            if (g_hIntegratedFontBtn) { DeleteObject(g_hIntegratedFontBtn); g_hIntegratedFontBtn = NULL; }
+            g_hIntegratedHoverBtn = NULL;
             g_hIntegratedDialog = NULL;
             EnableWindow(g_timerState.hMainWnd, TRUE);
             SetForegroundWindow(g_timerState.hMainWnd);

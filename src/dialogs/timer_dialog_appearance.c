@@ -136,9 +136,9 @@ static void RenderDialogUI() {
         1, GetRValue(UI_LIGHT_BORDER), GetGValue(UI_LIGHT_BORDER), GetBValue(UI_LIGHT_BORDER), 255);
 
     // Prepare GDI for Text
-    HFONT hFontLabel = CreateFontW(16, 0,0,0, FW_NORMAL, 0,0,0, DEFAULT_CHARSET, 0,0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
-    HFONT hFontSmall = CreateFontW(14, 0,0,0, FW_NORMAL, 0,0,0, DEFAULT_CHARSET, 0,0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
-    HFONT hFontBtn = CreateFontW(16, 0,0,0, FW_SEMIBOLD, 0,0,0, DEFAULT_CHARSET, 0,0, CLEARTYPE_QUALITY, 0, L"Segoe UI Variable");
+    HFONT hFontLabel = CreateUiFont(15, FW_NORMAL, FALSE);
+    HFONT hFontSmall = CreateUiFont(13, FW_NORMAL, FALSE);
+    HFONT hFontBtn = CreateUiFont(14, FW_SEMIBOLD, FALSE);
     
     const MenuTexts* texts = GetMenuTexts();
     
@@ -167,7 +167,7 @@ static void RenderDialogUI() {
     DrawTextSDF(g_hdcBuffer, texts->opacity, &rcLabelOp, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_PRIMARY);
     
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 3, 3, rcSliderTrack.left, rcSliderTrack.top, rcSliderTrack.right-rcSliderTrack.left, rcSliderTrack.bottom-rcSliderTrack.top, 220, 220, 225, 255);
-    float pct = g_tempOpacity / 255.0f; // 透明度 0-255 线性映射到滑块
+    float pct = (g_tempOpacity - 50) / 205.0f; // 与拖拽映射一致：50..255 → 0..1
     if (pct < 0) pct = 0; if (pct > 1) pct = 1;
     int fillW = (int)((rcSliderTrack.right - rcSliderTrack.left) * pct);
     if (fillW > 0) {
@@ -183,7 +183,7 @@ static void RenderDialogUI() {
     // Thumb border
     DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, sliderThumbR, sliderThumbR, thumbX - sliderThumbR, thumbY - sliderThumbR, sliderThumbR*2, sliderThumbR*2, 2, 0, 95, 184, 255);
 
-    wchar_t opText[16]; swprintf(opText, 16, L"%d%%", (int)((g_tempOpacity/255.0f)*100));
+    wchar_t opText[16]; swprintf(opText, 16, L"%d%%", (int)(pct * 100));
     RECT rcOpText = {rcSliderTrack.right + 15, rcSliderTrack.top - 5, rcSliderTrack.right + 60, rcSliderTrack.bottom + 5};
     DrawTextSDF(g_hdcBuffer, opText, &rcOpText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontBtn, UI_LIGHT_TEXT_PRIMARY);
 
@@ -195,26 +195,32 @@ static void RenderDialogUI() {
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, rcFontCombo.left, rcFontCombo.top, rcFontCombo.right-rcFontCombo.left, rcFontCombo.bottom-rcFontCombo.top, 255, 255, 255, 255);
     DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, rcFontCombo.left, rcFontCombo.top, rcFontCombo.right-rcFontCombo.left, rcFontCombo.bottom-rcFontCombo.top, 2, comboHover?0:80, comboHover?120:100, comboHover?190:120, 255);
     
-    RECT rcFntText = rcFontCombo; rcFntText.left += 15;
-    DrawTextSDF(g_hdcBuffer, g_tempFontName, &rcFntText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_PRIMARY);
-    
-    // Draw Chevron Down
-    HPEN hPenLine = CreatePen(PS_SOLID, 2, comboHover?UI_PRIMARY_COLOR:UI_LIGHT_BORDER);
-    HGDIOBJ hOldPen = SelectObject(g_hdcBuffer, hPenLine);
+    // 字体名止于箭头左侧 12px，长名用省略号，不再伸到箭头下方
+    RECT rcFntText = rcFontCombo; rcFntText.left += 15; rcFntText.right = rcFontCombo.right - 36;
+    DrawTextSDF(g_hdcBuffer, g_tempFontName, &rcFntText, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX, hFontLabel, UI_LIGHT_TEXT_PRIMARY);
+
+    // Draw Chevron Down（GDI 画笔会把所绘像素 alpha 置 0：先快照该区域 alpha，画完还原，
+    // 避免把未绘制的透明像素强行填成不透明黑块）
     int cx = rcFontCombo.right - 20;
     int cy = rcFontCombo.top + (rcFontCombo.bottom - rcFontCombo.top)/2 - 2;
-    MoveToEx(g_hdcBuffer, cx - 5, cy - 2, NULL);
-    LineTo(g_hdcBuffer, cx, cy + 3);
-    LineTo(g_hdcBuffer, cx + 5, cy - 2);
-    SelectObject(g_hdcBuffer, hOldPen);
-    DeleteObject(hPenLine);
-    
-    // Alpha fix for Chevron
-    for (int y = cy - 4; y <= cy + 5; y++) {
-        BYTE* row = g_pBits + (y * DLG_WIDTH * 4);
-        for (int x = cx - 6; x <= cx + 6; x++) {
-            row[x * 4 + 3] = 255;
-        }
+    {
+        const int chL = cx - 7, chT = cy - 5, chW = 15, chH = 12;
+        BYTE chAlpha[15 * 12];
+        for (int yy = 0; yy < chH; yy++)
+            for (int xx = 0; xx < chW; xx++)
+                chAlpha[yy * chW + xx] = g_pBits[((chT + yy) * DLG_WIDTH + (chL + xx)) * 4 + 3];
+
+        HPEN hPenLine = CreatePen(PS_SOLID, 2, comboHover?UI_PRIMARY_COLOR:UI_LIGHT_BORDER);
+        HGDIOBJ hOldPen = SelectObject(g_hdcBuffer, hPenLine);
+        MoveToEx(g_hdcBuffer, cx - 5, cy - 2, NULL);
+        LineTo(g_hdcBuffer, cx, cy + 3);
+        LineTo(g_hdcBuffer, cx + 5, cy - 2);
+        SelectObject(g_hdcBuffer, hOldPen);
+        DeleteObject(hPenLine);
+
+        for (int yy = 0; yy < chH; yy++)
+            for (int xx = 0; xx < chW; xx++)
+                g_pBits[((chT + yy) * DLG_WIDTH + (chL + xx)) * 4 + 3] = chAlpha[yy * chW + xx];
     }
 
     // Row 4: Transparency Toggle (flattened into panel, no floating card)
@@ -244,7 +250,7 @@ static void RenderDialogUI() {
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rcBtnApply.left, rcBtnApply.top, rcBtnApply.right-rcBtnApply.left, rcBtnApply.bottom-rcBtnApply.top,
         GetRValue(applyFill), GetGValue(applyFill), GetBValue(applyFill), 255);
     RECT rcApplyT = rcBtnApply;
-    DrawTextSDF(g_hdcBuffer, L"Apply", &rcApplyT, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, RGB(255,255,255));
+    DrawTextSDF(g_hdcBuffer, texts->ok, &rcApplyT, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, RGB(255,255,255));
 
     // Cancel
     BOOL cancelHover = (g_hoverId == HIT_BTN_CANCEL);
@@ -254,7 +260,7 @@ static void RenderDialogUI() {
     DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rcBtnCancel.left, rcBtnCancel.top, rcBtnCancel.right-rcBtnCancel.left, rcBtnCancel.bottom-rcBtnCancel.top,
         1, GetRValue(UI_LIGHT_BORDER), GetGValue(UI_LIGHT_BORDER), GetBValue(UI_LIGHT_BORDER), 255);
     RECT rcCancelT = rcBtnCancel;
-    DrawTextSDF(g_hdcBuffer, L"Cancel", &rcCancelT, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, UI_LIGHT_TEXT_PRIMARY);
+    DrawTextSDF(g_hdcBuffer, texts->cancel, &rcCancelT, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, UI_LIGHT_TEXT_PRIMARY);
 
     DeleteObject(hFontLabel);
     DeleteObject(hFontSmall);

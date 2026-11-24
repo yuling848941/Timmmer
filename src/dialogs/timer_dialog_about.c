@@ -1,70 +1,114 @@
 #include "timer_dialog_internal.h"
+#include "timer_render_utils.h"
 
+// 关于对话框客户区布局（外框尺寸由 AdjustWindowRectEx 换算，避免标题栏/边框吃掉按钮行）
+#define ABOUT_CW      480
+#define ABOUT_CH      380
+#define ABOUT_MARGIN  16
+#define ABOUT_BTN_H   32
+#define ABOUT_BTN_W   80
+
+static HWND g_hAboutDialog = NULL;
 static HWND g_hAboutHoverBtn = NULL;
-static HWND g_hAboutPressedBtn = NULL;
 static HFONT hAboutFont = NULL;
+static WNDPROC g_origAboutBtnProc = NULL;
+
+// 按钮子类：原生 BS_OWNERDRAW 按钮上的鼠标消息由子窗口自己接收，
+// 父窗口的 WM_MOUSEMOVE 收不到，故在子窗口里跟踪悬停并重绘自身。
+static LRESULT CALLBACK AboutBtnProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    switch (m) {
+        case WM_MOUSEMOVE: {
+            if (g_hAboutHoverBtn != h) {
+                g_hAboutHoverBtn = h;
+                InvalidateRect(h, NULL, FALSE);
+            }
+            TRACKMOUSEEVENT tme = {sizeof(tme), TME_LEAVE, h, 0};
+            TrackMouseEvent(&tme);
+            break;
+        }
+        case WM_MOUSELEAVE:
+            if (g_hAboutHoverBtn == h) {
+                g_hAboutHoverBtn = NULL;
+                InvalidateRect(h, NULL, FALSE);
+            }
+            break;
+        case WM_DESTROY:
+            if (g_hAboutHoverBtn == h) g_hAboutHoverBtn = NULL;
+            break;
+    }
+    return CallWindowProcW(g_origAboutBtnProc, h, m, w, l);
+}
+
+static void SubclassAboutButton(HWND hBtn) {
+    if (!g_origAboutBtnProc) {
+        g_origAboutBtnProc = (WNDPROC)GetWindowLongPtrW(hBtn, GWLP_WNDPROC);
+    }
+    SetWindowLongPtrW(hBtn, GWLP_WNDPROC, (LONG_PTR)AboutBtnProc);
+    SendMessageW(hBtn, WM_SETFONT, (WPARAM)hAboutFont, TRUE);
+}
+
+HWND GetAboutDialog(void) {
+    return g_hAboutDialog;
+}
 
 // ==================== 关于对话框 ====================
 
 void ShowAboutDialog(void) {
+    // 单例：已打开则前置，避免多实例共享字体/悬停状态互相破坏
+    if (g_hAboutDialog && IsWindow(g_hAboutDialog)) {
+        SetForegroundWindow(g_hAboutDialog);
+        return;
+    }
+
     const MenuTexts* texts = GetMenuTexts();
-    
-    // 创建关于对话框
+
+    DWORD style = WS_POPUP | WS_CAPTION | WS_SYSMENU;
+    DWORD exStyle = WS_EX_DLGMODALFRAME | WS_EX_TOPMOST;
+
+    // 按期望客户区反推外框尺寸，确保按钮行不会被标题栏/边框裁掉
+    RECT rcClient = {0, 0, ABOUT_CW, ABOUT_CH};
+    AdjustWindowRectEx(&rcClient, style, FALSE, exStyle);
+    int outerW = rcClient.right - rcClient.left;
+    int outerH = rcClient.bottom - rcClient.top;
+
+    // 在父窗口所在显示器的工作区内居中
+    HMONITOR mon = MonitorFromWindow(g_timerState.hMainWnd, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = {sizeof(mi)};
+    GetMonitorInfoW(mon, &mi);
+    int x = mi.rcWork.left + (mi.rcWork.right - mi.rcWork.left - outerW) / 2;
+    int y = mi.rcWork.top + (mi.rcWork.bottom - mi.rcWork.top - outerH) / 2;
+
     HWND hDlg = CreateWindowExW(
-        WS_EX_DLGMODALFRAME | WS_EX_TOPMOST,
-        L"STATIC",
-        texts->aboutTitle,
-        WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
-        0, 0, 500, 400,
-        g_timerState.hMainWnd,
-        NULL,
-        GetModuleHandle(NULL),
-        NULL
+        exStyle, L"STATIC", texts->aboutTitle, style,
+        x, y, outerW, outerH,
+        g_timerState.hMainWnd, NULL, GetModuleHandle(NULL), NULL
     );
-    
     if (!hDlg) return;
-    
-    // 居中显示
-    RECT rect;
-    GetWindowRect(hDlg, &rect);
-    int width = rect.right - rect.left;
-    int height = rect.bottom - rect.top;
-    int x = (GetSystemMetrics(SM_CXSCREEN) - width) / 2;
-    int y = (GetSystemMetrics(SM_CYSCREEN) - height) / 2;
-    SetWindowPos(hDlg, HWND_TOP, x, y, width, height, SWP_SHOWWINDOW);
-    
-    // 设置窗口过程
+    g_hAboutDialog = hDlg;
+
     SetWindowLongPtrW(hDlg, GWLP_WNDPROC, (LONG_PTR)AboutDialogProc);
-    
-    // 禁用主窗口
     EnableWindow(g_timerState.hMainWnd, FALSE);
-    
-    // 创建多行文本控件（带滚动条）
+
+    // 字体：统一 UI 字体族 + ClearType（关于窗口始终不透明，无需点阵质量）
+    if (hAboutFont) DeleteObject(hAboutFont);
+    hAboutFont = CreateUiFont(14, FW_NORMAL, FALSE);
+
+    int btnY = ABOUT_CH - ABOUT_MARGIN - ABOUT_BTN_H;
+
+    // 多行只读文本（带滚动条），底部给按钮行留出空间
     HWND hTextBox = CreateWindowExW(
-        WS_EX_CLIENTEDGE,
-        L"EDIT",
-        NULL,
+        WS_EX_CLIENTEDGE, L"EDIT", NULL,
         WS_VISIBLE | WS_CHILD | WS_VSCROLL | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL,
-        10, 10, 460, 320,
+        ABOUT_MARGIN, ABOUT_MARGIN,
+        ABOUT_CW - ABOUT_MARGIN * 2, btnY - ABOUT_MARGIN - 12,
         hDlg, (HMENU)1001, GetModuleHandle(NULL), NULL
     );
-    
-    // 设置字体
-    // 根据透明背景模式选择字体质量
-    DWORD fontQuality = g_timerState.transparentBackground ? NONANTIALIASED_QUALITY : CLEARTYPE_QUALITY;
-    if (hAboutFont) { DeleteObject(hAboutFont); }
-    hAboutFont = CreateFontW(
-        14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        fontQuality, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI Variable"
-    );
     SendMessage(hTextBox, WM_SETFONT, (WPARAM)hAboutFont, TRUE);
-    
-    // 构建完整的关于信息文本
+
     wchar_t aboutText[2048];
     swprintf(aboutText, 2048,
         L"Timer 计时器应用程序\r\n"
-        L"Version 1.2.0\r\n"
+        L"Version 1.3.0\r\n"
         L"\r\n"
         L"作者 / Author: 面包哥\r\n"
         L"年份 / Year: 2025年\r\n"
@@ -126,24 +170,26 @@ void ShowAboutDialog(void) {
         L"项目主页 / GitHub Repo:\r\n"
         L"https://github.com/yuling848941/Timmmer"
     );
-    
-    // 设置文本内容
     SetWindowTextW(hTextBox, aboutText);
-    
-    // 恢复出厂设置按钮（左下角）
-    CreateWindowW(L"BUTTON", texts->factoryReset,
-        WS_VISIBLE | WS_CHILD | BS_OWNERDRAW,
-        20, 340, 120, 30, hDlg, (HMENU)ID_ABOUT_BTN_FACTORY_RESET, GetModuleHandle(NULL), NULL);
-    
-    // 确定按钮
-    CreateWindowW(L"BUTTON", texts->ok,
-        WS_VISIBLE | WS_CHILD | BS_OWNERDRAW,
-        160, 340, 80, 30, hDlg, (HMENU)ID_ABOUT_BTN_OK, GetModuleHandle(NULL), NULL);
 
-    // GitHub 按钮
-    CreateWindowW(L"BUTTON", L"GitHub",
+    // 按钮行：恢复出厂设置靠左，确定/GitHub 靠右对齐，消除右侧空白
+    int rightEdge = ABOUT_CW - ABOUT_MARGIN;
+    HWND hFactory = CreateWindowW(L"BUTTON", texts->factoryReset,
         WS_VISIBLE | WS_CHILD | BS_OWNERDRAW,
-        250, 340, 80, 30, hDlg, (HMENU)1002, GetModuleHandle(NULL), NULL);
+        ABOUT_MARGIN, btnY, 120, ABOUT_BTN_H, hDlg, (HMENU)ID_ABOUT_BTN_FACTORY_RESET, GetModuleHandle(NULL), NULL);
+    HWND hOk = CreateWindowW(L"BUTTON", texts->ok,
+        WS_VISIBLE | WS_CHILD | BS_OWNERDRAW,
+        rightEdge - ABOUT_BTN_W * 2 - 10, btnY, ABOUT_BTN_W, ABOUT_BTN_H, hDlg, (HMENU)ID_ABOUT_BTN_OK, GetModuleHandle(NULL), NULL);
+    HWND hGitHub = CreateWindowW(L"BUTTON", L"GitHub",
+        WS_VISIBLE | WS_CHILD | BS_OWNERDRAW,
+        rightEdge - ABOUT_BTN_W, btnY, ABOUT_BTN_W, ABOUT_BTN_H, hDlg, (HMENU)1002, GetModuleHandle(NULL), NULL);
+
+    SubclassAboutButton(hFactory);
+    SubclassAboutButton(hOk);
+    SubclassAboutButton(hGitHub);
+
+    ShowWindow(hDlg, SW_SHOW);
+    SetForegroundWindow(hDlg);
 }
 
 LRESULT CALLBACK AboutDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -153,7 +199,7 @@ LRESULT CALLBACK AboutDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM 
                 case ID_ABOUT_BTN_OK:
                     DestroyWindow(hDlg);
                     return 0;
-                    
+
                 case ID_ABOUT_BTN_FACTORY_RESET: {
                     int result = MessageBoxW(hDlg,
                         L"确定要恢复出厂设置吗？所有自定义设置将被重置。",
@@ -173,7 +219,6 @@ LRESULT CALLBACK AboutDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM 
             }
             break;
 
-        // 设置静态文本控件背景色
         case WM_CTLCOLORSTATIC: {
             HDC hdcStatic = (HDC)wParam;
             SetTextColor(hdcStatic, UI_LIGHT_TEXT_PRIMARY);
@@ -183,7 +228,6 @@ LRESULT CALLBACK AboutDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM 
             return (LRESULT)hDlgBgBrush;
         }
 
-        // 设置按钮控件背景色
         case WM_CTLCOLORBTN: {
             HDC hdcBtn = (HDC)wParam;
             SetBkColor(hdcBtn, UI_LIGHT_BG_PRIMARY);
@@ -192,7 +236,6 @@ LRESULT CALLBACK AboutDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM 
             return (LRESULT)hDlgBgBrush2;
         }
 
-        // 绘制对话框背景
         case WM_ERASEBKGND: {
             HDC hdc = (HDC)wParam;
             RECT rect;
@@ -203,111 +246,53 @@ LRESULT CALLBACK AboutDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM 
             return TRUE;
         }
 
-        // 按钮悬停跟踪
-        case WM_MOUSEMOVE: {
-            POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-            HWND hHoverCtrl = ChildWindowFromPoint(hDlg, pt);
-
-            if (hHoverCtrl && (GetWindowLong(hHoverCtrl, GWL_STYLE) & BS_OWNERDRAW)) {
-                if (g_hAboutHoverBtn != hHoverCtrl) {
-                    g_hAboutHoverBtn = hHoverCtrl;
-                    InvalidateRect(hDlg, NULL, FALSE);
-                }
-            } else {
-                if (g_hAboutHoverBtn != NULL) {
-                    g_hAboutHoverBtn = NULL;
-                    InvalidateRect(hDlg, NULL, FALSE);
-                }
-            }
-            return 0;
-        }
-
-        case WM_LBUTTONDOWN: {
-            // 检测是否点击了按钮，如果是则设置按下状态
-            POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-            HWND hHoverCtrl = ChildWindowFromPoint(hDlg, pt);
-            if (hHoverCtrl && (GetWindowLong(hHoverCtrl, GWL_STYLE) & BS_OWNERDRAW)) {
-                g_hAboutPressedBtn = hHoverCtrl;
-                InvalidateRect(hDlg, NULL, FALSE);
-            }
-            return 0;
-        }
-
-        case WM_LBUTTONUP: {
-            // 清除按钮按下状态并重绘
-            if (g_hAboutPressedBtn != NULL) {
-                g_hAboutPressedBtn = NULL;
-                InvalidateRect(hDlg, NULL, FALSE);
-            }
-            return 0;
-        }
-
-        case WM_MOUSELEAVE: {
-            if (g_hAboutHoverBtn != NULL) {
-                g_hAboutHoverBtn = NULL;
-                InvalidateRect(hDlg, NULL, FALSE);
-            }
-            return 0;
-        }
-
-        // 绘制按钮
         case WM_DRAWITEM: {
             LPDRAWITEMSTRUCT dis = (LPDRAWITEMSTRUCT)lParam;
-
             if (dis->CtlID == ID_ABOUT_BTN_OK || dis->CtlID == ID_ABOUT_BTN_FACTORY_RESET || dis->CtlID == 1002) {
                 BOOL isHover = (g_hAboutHoverBtn == dis->hwndItem);
-                BOOL isPressed = (g_hAboutPressedBtn == dis->hwndItem);
+                BOOL isPressed = (dis->itemState & ODS_SELECTED) != 0;
                 BOOL isOK = (dis->CtlID == ID_ABOUT_BTN_OK || dis->CtlID == 1002);
 
-                // 确定按钮：蓝色背景，悬停时更深，按下时最深；其他按钮：浅灰背景，悬停时中灰，按下时更深
                 COLORREF fillColor = isOK ? UI_PRIMARY_COLOR : UI_LIGHT_BG_SECONDARY;
-                if (isPressed) {
-                    fillColor = isOK ? UI_PRIMARY_PRESSED : UI_LIGHT_BUTTON_PRESSED;
-                } else if (isHover) {
-                    fillColor = isOK ? UI_PRIMARY_HOVER : UI_LIGHT_BUTTON_HOVER;
-                }
+                if (isPressed) fillColor = isOK ? UI_PRIMARY_PRESSED : UI_LIGHT_BUTTON_PRESSED;
+                else if (isHover) fillColor = isOK ? UI_PRIMARY_HOVER : UI_LIGHT_BUTTON_HOVER;
 
-                COLORREF borderColor = UI_LIGHT_BORDER;
-                int borderWidth = 1;
-                int radius = 6;
-
-                // 按下时按钮向下偏移 1 像素
                 RECT btnRect = dis->rcItem;
-                if (isPressed) {
-                    btnRect.top += 1;
-                    btnRect.bottom += 1;
-                }
+                if (isPressed) { btnRect.top += 1; btnRect.bottom += 1; }
+                DrawRoundRect(dis->hDC, &btnRect, 6, fillColor, UI_LIGHT_BORDER, 1);
 
-                DrawRoundRect(dis->hDC, &btnRect, radius, fillColor, borderColor, borderWidth);
-
-                const wchar_t* btnText = NULL;
                 const MenuTexts* texts = GetMenuTexts();
-
+                const wchar_t* btnText = NULL;
                 switch (dis->CtlID) {
                     case ID_ABOUT_BTN_OK: btnText = texts->ok; break;
                     case ID_ABOUT_BTN_FACTORY_RESET: btnText = texts->factoryReset; break;
+                    case 1002: btnText = L"GitHub"; break;
                 }
-
                 if (btnText) {
+                    HFONT oldFont = (HFONT)SelectObject(dis->hDC, hAboutFont);
                     SetBkMode(dis->hDC, TRANSPARENT);
-                    COLORREF textColor = isOK ? RGB(255, 255, 255) : UI_LIGHT_TEXT_PRIMARY;
-                    SetTextColor(dis->hDC, textColor);
-                    // 计算文本居中位置（按下时也偏移 1 像素）
+                    SetTextColor(dis->hDC, isOK ? RGB(255, 255, 255) : UI_LIGHT_TEXT_PRIMARY);
                     RECT textRect = btnRect;
-                    DrawTextW(dis->hDC, btnText, -1, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                    DrawTextW(dis->hDC, btnText, -1, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+                    SelectObject(dis->hDC, oldFont);
                 }
-
                 return TRUE;
             }
             return TRUE;
         }
 
+        case WM_CLOSE:
+            DestroyWindow(hDlg);
+            return 0;
+
         case WM_DESTROY:
             if (hAboutFont) { DeleteObject(hAboutFont); hAboutFont = NULL; }
+            g_hAboutHoverBtn = NULL;
+            g_hAboutDialog = NULL;
             EnableWindow(g_timerState.hMainWnd, TRUE);
             SetForegroundWindow(g_timerState.hMainWnd);
             return 0;
     }
-    
+
     return DefWindowProcW(hDlg, message, wParam, lParam);
 }

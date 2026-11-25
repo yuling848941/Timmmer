@@ -11,25 +11,25 @@
 #include "timer_core.h"
 #include <math.h>
 
-// 暗色：玻璃 (13,19,28) @74%，描边白 11%，投影 46%，辉光 60%
+// 暗色：面板底色 (13,19,28) @88%（真透明度，由系统实时合成），描边白 11%，投影 46%，辉光 60%
 static const UiTheme THEME_DARK = {
     TRUE,
     RGB(34, 211, 238), RGB(34, 211, 238), RGB(74, 226, 247), RGB(14, 185, 214), RGB(6, 20, 26),
     RGB(230, 237, 243), RGB(143, 161, 184), RGB(86, 99, 122), RGB(244, 63, 94),
     RGB(16, 23, 33), RGB(28, 37, 50), RGB(9, 14, 21), RGB(60, 72, 90), RGB(38, 50, 66), RGB(30, 40, 54),
-    RGB(13, 19, 28), 189, RGB(255, 255, 255), 28, 117, 51,
+    RGB(13, 19, 28), 224, RGB(255, 255, 255), 28, 117, 51,
     RGB(255, 255, 255), 15, RGB(255, 255, 255), 15, RGB(255, 255, 255), 36, RGB(0, 0, 0), 56,
     RGB(255, 255, 255), 23, RGB(205, 214, 224),
     153
 };
 
-// 亮色：玻璃 (247,250,253) @80%，描边墨色 10%，投影 15%，辉光 30%
+// 亮色：面板底色 (247,250,253) @88%（真透明度，由系统实时合成），描边墨色 10%，投影 15%，辉光 30%
 static const UiTheme THEME_LIGHT = {
     FALSE,
     RGB(14, 116, 144), RGB(6, 182, 212), RGB(34, 199, 226), RGB(4, 160, 188), RGB(4, 47, 75),
     RGB(15, 23, 42), RGB(71, 85, 105), RGB(130, 143, 160), RGB(225, 29, 72),
     RGB(244, 248, 252), RGB(255, 255, 255), RGB(255, 255, 255), RGB(203, 213, 225), RGB(228, 236, 244), RGB(214, 224, 234),
-    RGB(247, 250, 253), 204, RGB(15, 23, 42), 26, 38, 191,
+    RGB(247, 250, 253), 224, RGB(15, 23, 42), 26, 38, 191,
     RGB(15, 23, 42), 11, RGB(255, 255, 255), 158, RGB(15, 23, 42), 26, RGB(255, 255, 255), 168,
     RGB(15, 23, 42), 20, RGB(255, 255, 255),
     77
@@ -70,6 +70,15 @@ static COLORREF ColorFromHsv(float h, float s, float v) {
 // 字色是黑/白/灰这类无彩色时无法直接当强调色用，沿用默认青色。
 // 计时器处于超时正计时时字色会临时变红，取用户原本设置的颜色来判断。
 static void ApplyAccent(UiTheme* t) {
+    // 先回到该主题的默认青色：字色变成黑/白/灰这类无彩色时，强调色要跟着回落，
+    // 而不是停留在上一次字色推出来的颜色
+    const UiTheme* base = t->isDark ? &THEME_DARK : &THEME_LIGHT;
+    t->accent = base->accent;
+    t->accentFill = base->accentFill;
+    t->accentHover = base->accentHover;
+    t->accentPressed = base->accentPressed;
+    t->onAccent = base->onAccent;
+
     COLORREF src = g_timerState.isInOvertimeMode ? g_timerState.originalFontColor : g_timerState.fontColor;
     float h, s, v;
     HsvFromColor(src, &h, &s, &v);

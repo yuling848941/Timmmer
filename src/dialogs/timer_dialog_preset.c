@@ -82,7 +82,7 @@ static HWND g_hPresetDialog = NULL;
 static HDC  g_hdcBuffer = NULL;
 static HBITMAP g_hbmBuffer = NULL;
 static BYTE* g_pBits = NULL;
-static DialogGlass g_glass;       // 玻璃底：背景快照 + 预渲染底图
+static DialogGlass g_glass;       // 面板底图：投影 + 底色 + 描边 + 高光
 
 static int g_hoverRow = -1;
 static HitTestID g_pressedId = HIT_NONE;
@@ -505,8 +505,8 @@ LRESULT CALLBACK PresetEditDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
                 g_origPresets[i] = g_timerState.presetTimes[i];
             }
 
-            // 窗口此刻尚未显示：捕获背后的屏幕做玻璃底图
-            DialogGlass_Init(&g_glass, hwnd, DLG_WIDTH, DLG_HEIGHT, DLG_SHADOW, DLG_RADIUS);
+            // 生成面板底图
+            DialogGlass_Init(&g_glass, DLG_WIDTH, DLG_HEIGHT, DLG_SHADOW, DLG_RADIUS);
             UpdatePresetWindow();
             SetTimer(hwnd, 2, 100, NULL);  // Main window refresh
             SetTimer(hwnd, 3, 500, NULL);  // Cursor blink / toast
@@ -514,7 +514,7 @@ LRESULT CALLBACK PresetEditDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
         }
 
         case WM_UI_THEME_CHANGED: {
-            DialogGlass_Rebuild(&g_glass, hwnd);
+            DialogGlass_Rebuild(&g_glass);
             UpdatePresetWindow();
             return 0;
         }
@@ -655,7 +655,7 @@ LRESULT CALLBACK PresetEditDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
 
         case WM_LBUTTONUP: {
             if (g_draggingScrollbar) { g_draggingScrollbar = FALSE; ReleaseCapture(); }
-            if (g_draggingDlg) { g_draggingDlg = FALSE; ReleaseCapture(); DialogGlass_Rebuild(&g_glass, hwnd); }
+            if (g_draggingDlg) { g_draggingDlg = FALSE; ReleaseCapture(); }
 
             POINT pt = {(short)LOWORD(lParam), (short)HIWORD(lParam)};
 

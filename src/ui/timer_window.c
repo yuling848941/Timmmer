@@ -10,6 +10,7 @@
 #include "timer_window_utils.h"
 #include "ios_menu.h"
 #include "tray_panel.h"
+#include "timer_ipc.h"
 #include <shellapi.h>
 
 // 拖拽缩放节流间隔（毫秒），约 60 FPS，避免每个鼠标移动事件都触发同步重绘
@@ -162,24 +163,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 
             UpdateDisplay(hdcMem);
 
-            // 普通模式：沿窗口边缘画一圈细描边，圆角与菜单/面板一致（12px）。
-            // 只作用于普通模式分支；背景隐藏模式走上面的分层渲染，完全不经过这里。
-            {
-                int w = g_timerState.windowWidth, h = g_timerState.windowHeight;
-                COLORREF bc = UI_LIGHT_BORDER;
-                COLORREF bg = g_timerState.backgroundColor;
-                // 描边色向背景色靠拢，避免在任意背景上都过于突兀
-                COLORREF line = RGB((GetRValue(bc) + GetRValue(bg)) / 2,
-                                    (GetGValue(bc) + GetGValue(bg)) / 2,
-                                    (GetBValue(bc) + GetBValue(bg)) / 2);
-                HPEN pen = CreatePen(PS_SOLID, 1, line);
-                HGDIOBJ oldPen = SelectObject(hdcMem, pen);
-                HGDIOBJ oldBrush = SelectObject(hdcMem, GetStockObject(NULL_BRUSH));
-                RoundRect(hdcMem, 0, 0, w, h, 24, 24);
-                SelectObject(hdcMem, oldBrush);
-                SelectObject(hdcMem, oldPen);
-                DeleteObject(pen);
-            }
+            // 这里不再自己画描边：窗口的外框和圆角由系统（DWM）绘制，自带抗锯齿。
+            // GDI 的 RoundRect 没有抗锯齿，半径也和系统圆角对不上，画上去只会在四个角
+            // 留下一圈锯齿（直边上的部分会被系统边框盖住）。
 
             // 从持久化位图复制到屏幕
             BitBlt(hdc, 0, 0, g_timerState.windowWidth, g_timerState.windowHeight,
@@ -655,6 +641,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             return 0;
         }
 
+        case WM_IPC_COMMAND:
+            // 命名管道命令转交到此（UI 线程），执行后回写状态并置位事件
+            Ipc_HandleCommand(hwnd, lParam);
+            return 0;
+
         case WM_CLOSE:
             DestroyWindow(hwnd);
             return 0;
@@ -684,6 +675,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             CleanupLayeredBuffer();
             // 清理数字预渲染缓存
             CleanupDigitCache();
+            // 关闭命名管道 IPC 服务线程
+            Ipc_Shutdown();
             PostQuitMessage(0);
             return 0;
     }

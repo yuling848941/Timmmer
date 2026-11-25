@@ -299,7 +299,7 @@ void RestoreAlpha(BYTE* pixels, const BYTE* alpha, size_t pixelCount) {
 }
 
 // ===========================================
-// 盒式模糊（背景快照 / 文字辉光共用）
+// 盒式模糊（文字辉光用）
 // ===========================================
 
 // 可分离盒式模糊：横向、纵向各做一次滑窗，重复 iterations 次可逼近高斯。
@@ -348,48 +348,8 @@ static void BoxBlur(BYTE* dst, const BYTE* src, int w, int h, int radius, int it
 }
 
 // ===========================================
-// 背景快照与玻璃面板
+// 玻璃风格面板底图
 // ===========================================
-
-BOOL Backdrop_Capture(Backdrop* bd, int x, int y, int w, int h) {
-    memset(bd, 0, sizeof(*bd));
-    if (w <= 0 || h <= 0) return FALSE;
-    HDC screen = GetDC(NULL);
-    if (!screen) return FALSE;
-    HDC dc = CreateCompatibleDC(screen);
-    BITMAPINFOHEADER bi;
-    memset(&bi, 0, sizeof(bi));
-    bi.biSize = sizeof(bi); bi.biWidth = w; bi.biHeight = -h; bi.biPlanes = 1; bi.biBitCount = 32; bi.biCompression = BI_RGB;
-    void* bits = NULL;
-    HBITMAP dib = CreateDIBSection(screen, (BITMAPINFO*)&bi, DIB_RGB_COLORS, &bits, NULL, 0);
-    BOOL ok = FALSE;
-    if (dc && dib) {
-        HGDIOBJ old = SelectObject(dc, dib);
-        GdiFlush();
-        // CAPTUREBLT：把其它程序的分层窗口也拍进来
-        ok = BitBlt(dc, 0, 0, w, h, screen, x, y, SRCCOPY | CAPTUREBLT);
-        SelectObject(dc, old);
-        if (ok && bits) {
-            // DIB 段删除后像素随之失效，所以拷贝一份自持
-            bd->pixels = (BYTE*)malloc((size_t)w * h * 4);
-            if (bd->pixels) {
-                memcpy(bd->pixels, bits, (size_t)w * h * 4);
-                bd->x = x; bd->y = y; bd->w = w; bd->h = h;
-            } else {
-                ok = FALSE;
-            }
-        }
-    }
-    if (dib) DeleteObject(dib);
-    if (dc) DeleteDC(dc);
-    ReleaseDC(NULL, screen);
-    return ok;
-}
-
-void Backdrop_Release(Backdrop* bd) {
-    if (bd->pixels) free(bd->pixels);
-    memset(bd, 0, sizeof(*bd));
-}
 
 void GlassCache_Free(GlassCache* gc) {
     if (gc->pixels) free(gc->pixels);
@@ -398,8 +358,7 @@ void GlassCache_Free(GlassCache* gc) {
 }
 
 BOOL GlassCache_Build(GlassCache* gc, int bufW, int bufH, int px, int py, int pw, int ph, int radius,
-                      int shadowSize, int blurRadius, const Backdrop* bd, int screenX, int screenY,
-                      const UiTheme* theme) {
+                      int shadowSize, const UiTheme* theme) {
     GlassCache_Free(gc);
     if (bufW <= 0 || bufH <= 0 || pw <= 0 || ph <= 0 || !theme) return FALSE;
     gc->pixels = (BYTE*)calloc((size_t)bufW * bufH, 4);
@@ -411,55 +370,23 @@ BOOL GlassCache_Build(GlassCache* gc, int bufW, int bufH, int px, int py, int pw
     DrawSoftShadowSDF(gc->pixels, bufW, bufH, px, py, pw, ph, radius, shadowSize, shadowSize / 6,
                       theme->shadowAlpha / 255.0f);
 
-    // 2) 玻璃底：背景快照中同一屏幕位置的区域做模糊，再按不透明度叠上底色
+    // 2) 底色：实心，或带一点真透明度（由系统实时合成，不截图），抗锯齿圆角
     float cx = px + pw / 2.0f, cy = py + ph / 2.0f, hw = pw / 2.0f, hh = ph / 2.0f;
-    float k = theme->glassAlpha / 255.0f;
+    float a = theme->glassAlpha / 255.0f;
     BYTE gr = GetRValue(theme->glass), gg = GetGValue(theme->glass), gb = GetBValue(theme->glass);
-    BYTE* blur = NULL;
-    if (bd && bd->pixels && bd->w > 0 && bd->h > 0) {
-        blur = (BYTE*)malloc((size_t)pw * ph * 4);
-        if (blur) {
-            // 超出快照范围的部分钳制到快照边缘像素
-            int bx = px + screenX - bd->x, by = py + screenY - bd->y;
-            for (int j = 0; j < ph; j++) {
-                int sy = by + j;
-                if (sy < 0) sy = 0;
-                if (sy > bd->h - 1) sy = bd->h - 1;
-                const BYTE* row = bd->pixels + (size_t)sy * bd->w * 4;
-                BYTE* out = blur + (size_t)j * pw * 4;
-                for (int i = 0; i < pw; i++) {
-                    int sx = bx + i;
-                    if (sx < 0) sx = 0;
-                    if (sx > bd->w - 1) sx = bd->w - 1;
-                    const BYTE* s = row + (size_t)sx * 4;
-                    BYTE* d = out + (size_t)i * 4;
-                    d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; d[3] = 255;
-                }
-            }
-            BoxBlur(blur, blur, pw, ph, blurRadius, 2);
-        }
-    }
     for (int y = py; y < py + ph; y++) {
         if (y < 0 || y >= bufH) continue;
         for (int x = px; x < px + pw; x++) {
             if (x < 0 || x >= bufW) continue;
             float cov = RoundedRectCoverage(x, y, cx, cy, hw, hh, (float)radius);
             if (cov <= 0.0f) continue;
-            float r = gr, g = gg, b = gb;
-            if (blur) {
-                const BYTE* s = blur + ((size_t)(y - py) * pw + (x - px)) * 4;   // BGRA
-                r = s[2] * (1 - k) + gr * k;
-                g = s[1] * (1 - k) + gg * k;
-                b = s[0] * (1 - k) + gb * k;
-            }
             BYTE* o = gc->pixels + ((size_t)y * bufW + x) * 4;                   // 预乘 ARGB
-            o[0] = (BYTE)(b * cov);
-            o[1] = (BYTE)(g * cov);
-            o[2] = (BYTE)(r * cov);
-            o[3] = (BYTE)(255 * cov + 0.5f);
+            o[0] = (BYTE)(gb * a * cov);
+            o[1] = (BYTE)(gg * a * cov);
+            o[2] = (BYTE)(gr * a * cov);
+            o[3] = (BYTE)(255 * a * cov + 0.5f);
         }
     }
-    free(blur);
 
     // 3) 描边与顶部高光
     if (theme->panelBorderAlpha) {
@@ -468,7 +395,8 @@ BOOL GlassCache_Build(GlassCache* gc, int bufW, int bufH, int px, int py, int pw
                                  theme->panelBorderAlpha);
     }
     if (theme->topHighlightAlpha && radius > 0 && pw > 2 * radius) {
-        FillRoundedRectAA(gc->pixels, bufW, bufH, 0, 0, px + radius, py + 1, pw - 2 * radius, 1, 255, 255, 255, theme->topHighlightAlpha);
+        FillRoundedRectAA(gc->pixels, bufW, bufH, 0, 0, px + radius, py + 1, pw - 2 * radius, 1,
+                          255, 255, 255, theme->topHighlightAlpha);
     }
     return TRUE;
 }

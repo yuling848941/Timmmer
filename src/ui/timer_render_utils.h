@@ -83,24 +83,14 @@ void SnapshotAlpha(const BYTE* pixels, BYTE* outAlpha, size_t pixelCount);
 void RestoreAlpha(BYTE* pixels, const BYTE* alpha, size_t pixelCount);
 
 // ===========================================
-// 背景快照与玻璃面板
-// 系统级的背景模糊（Win11 Acrylic/Mica）不会出现在逐像素透明的分层窗口后面，
-// 所以用"快照式"替代：窗口显示前把背后的屏幕拍下来，模糊后作为面板底。
+// 玻璃风格面板底图
+// 面板是逐像素透明的分层窗口，系统不会替它合成"身后的模糊画面"，所以这里不去假装磨砂：
+// "玻璃感"只来自底色、细描边、顶部高光和柔和投影。底色可以带一点真透明度（glassAlpha），
+// 由系统实时合成，和计时器主体的整窗透明度是同一个原理——不截图、不会过期、拖动天然跟手。
 // ===========================================
 
-// 屏幕上一块区域的像素快照（BGRA，自顶向下，坐标与调用方同一坐标系）
-typedef struct {
-    int x, y, w, h;         // 区域在屏幕上的位置与大小
-    BYTE* pixels;           // NULL 表示没有可用快照
-} Backdrop;
-
-// 捕获屏幕区域。必须在目标窗口尚未显示（或不可见）时调用，否则会把窗口自己拍进去。
-// 失败时 bd->pixels 为 NULL，之后的绘制自动退化为不透明底色。
-BOOL Backdrop_Capture(Backdrop* bd, int x, int y, int w, int h);
-void Backdrop_Release(Backdrop* bd);
-
-// 预渲染的玻璃面板底图（预乘 ARGB：投影 + 玻璃底 + 描边 + 顶部高光）。
-// 弹窗不动时底图不变，之后每次重绘只需整体拷贝，不必重新模糊。
+// 预渲染的面板底图（预乘 ARGB：投影 + 底色 + 描边 + 顶部高光）。
+// 与窗口位置无关：每个弹窗生成一次，之后每次重绘只需整体拷贝。
 typedef struct {
     int w, h;
     BYTE* pixels;
@@ -109,10 +99,8 @@ typedef struct {
 void GlassCache_Free(GlassCache* gc);
 
 // 生成底图：缓冲大小 bufW x bufH，面板位于缓冲内 (px,py,pw,ph)。
-// screenX/screenY 是缓冲左上角在屏幕上的位置，用来与背景快照 bd 对齐；bd 为 NULL 时退化为不透明底色。
 BOOL GlassCache_Build(GlassCache* gc, int bufW, int bufH, int px, int py, int pw, int ph, int radius,
-                      int shadowSize, int blurRadius, const Backdrop* bd, int screenX, int screenY,
-                      const UiTheme* theme);
+                      int shadowSize, const UiTheme* theme);
 
 // 把底图整体拷贝到同尺寸的目标缓冲
 void GlassCache_Blit(const GlassCache* gc, BYTE* dst, int bufW, int bufH);

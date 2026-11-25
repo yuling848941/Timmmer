@@ -12,7 +12,7 @@ static HWND g_hSetTimeDialog = NULL;
 static HDC g_hdcBuffer = NULL;
 static HBITMAP g_hbmBuffer = NULL;
 static BYTE* g_pBits = NULL;
-static DialogGlass g_glass;       // 玻璃底：背景快照 + 预渲染底图
+static DialogGlass g_glass;       // 面板底图：投影 + 底色 + 描边 + 高光
 
 static int g_tempHours, g_tempMinutes, g_tempSeconds;
 static BOOL g_tempShowHours, g_tempShowMinutes, g_tempShowSeconds, g_tempShowMilliseconds;
@@ -459,9 +459,9 @@ LRESULT CALLBACK SetTimeDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             g_origShowHours = g_tempShowHours; g_origShowMinutes = g_tempShowMinutes;
             g_origShowSeconds = g_tempShowSeconds; g_origShowMilliseconds = g_tempShowMilliseconds;
 
-            // 窗口此刻尚未显示：捕获背后的屏幕做玻璃底图
+            // 生成面板底图
             g_alphaSnap = (BYTE*)malloc((size_t)DLG_WIDTH * DLG_HEIGHT);
-            DialogGlass_Init(&g_glass, hwnd, DLG_WIDTH, DLG_HEIGHT, DLG_SHADOW, DLG_RADIUS);
+            DialogGlass_Init(&g_glass, DLG_WIDTH, DLG_HEIGHT, DLG_SHADOW, DLG_RADIUS);
 
             RenderDialogUI();
             RedrawDialog();
@@ -469,8 +469,8 @@ LRESULT CALLBACK SetTimeDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
         }
 
         case WM_UI_THEME_CHANGED: {
-            // 亮暗色切换：背景快照仍然有效，按新主题重建底图并重绘
-            DialogGlass_Rebuild(&g_glass, hwnd);
+            // 亮暗色切换：按新主题重建底图并重绘
+            DialogGlass_Rebuild(&g_glass);
             RenderDialogUI();
             RedrawDialog();
             return 0;
@@ -521,7 +521,6 @@ LRESULT CALLBACK SetTimeDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
             if (g_isDraggingDlg) {
                 g_isDraggingDlg = FALSE;
                 ReleaseCapture();
-                DialogGlass_Rebuild(&g_glass, hwnd);   // 拖动结束：玻璃底对齐到新位置背后的画面
             }
 
             POINT pt = {(short)LOWORD(lParam), (short)HIWORD(lParam)};

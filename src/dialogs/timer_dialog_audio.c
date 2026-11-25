@@ -35,7 +35,7 @@ static HWND g_hAudioDialog = NULL;
 static HDC  g_hdcBuffer  = NULL;
 static HBITMAP g_hbmBuffer = NULL;
 static BYTE* g_pBits = NULL;
-static DialogGlass g_glass;       // 玻璃底：背景快照 + 预渲染底图
+static DialogGlass g_glass;       // 面板底图：投影 + 底色 + 描边 + 高光
 
 // Temporary state (mirrors g_timerState)
 static BOOL  g_tempEnableAudio;
@@ -72,9 +72,9 @@ static RECT rcToggleSwitch = {CONTENT_R - 34, DLG_SHADOW + 55, CONTENT_R, DLG_SH
 static RECT rcBrowseBtn = {CONTENT_R - BROWSE_W, DLG_SHADOW + 210, CONTENT_R, DLG_SHADOW + 246};
 static RECT rcInputBox  = {CONTENT_L, DLG_SHADOW + 210, CONTENT_R - BROWSE_W - 10, DLG_SHADOW + 246};
 
-// Button layout（右对齐，底部留 24px）
-static RECT rcBtnCancel = {CONTENT_R - BTN_W, DLG_SHADOW + 300, CONTENT_R, DLG_SHADOW + 300 + BTN_H};
-static RECT rcBtnOk     = {CONTENT_R - BTN_W * 2 - BTN_GAP, DLG_SHADOW + 300, CONTENT_R - BTN_W - BTN_GAP, DLG_SHADOW + 300 + BTN_H};
+// Button layout（右对齐，底部留 24px：卡片底边 = DLG_HEIGHT - DLG_SHADOW = 356，按钮底边 = 332）
+static RECT rcBtnCancel = {CONTENT_R - BTN_W, DLG_SHADOW + 272, CONTENT_R, DLG_SHADOW + 272 + BTN_H};
+static RECT rcBtnOk     = {CONTENT_R - BTN_W * 2 - BTN_GAP, DLG_SHADOW + 272, CONTENT_R - BTN_W - BTN_GAP, DLG_SHADOW + 272 + BTN_H};
 
 // ============================================
 // Drawing Helpers
@@ -279,14 +279,14 @@ static LRESULT CALLBACK ModernAudioDialogProc(HWND hwnd, UINT msg, WPARAM wParam
             g_tempAudioType = g_originalAudioType;
             wcscpy_s(g_tempCustomPath, MAX_PATH, g_originalCustomPath);
 
-            // 窗口此刻尚未显示：捕获背后的屏幕做玻璃底图
-            DialogGlass_Init(&g_glass, hwnd, DLG_WIDTH, DLG_HEIGHT, DLG_SHADOW, DLG_RADIUS);
+            // 生成面板底图
+            DialogGlass_Init(&g_glass, DLG_WIDTH, DLG_HEIGHT, DLG_SHADOW, DLG_RADIUS);
             UpdateAudioLayeredWindow();
             return 0;
         }
 
         case WM_UI_THEME_CHANGED: {
-            DialogGlass_Rebuild(&g_glass, hwnd);
+            DialogGlass_Rebuild(&g_glass);
             UpdateAudioLayeredWindow();
             return 0;
         }
@@ -358,7 +358,6 @@ static LRESULT CALLBACK ModernAudioDialogProc(HWND hwnd, UINT msg, WPARAM wParam
                 g_isDraggingDlg = FALSE;
                 ReleaseCapture();
                 g_pressedId = HIT_NONE;
-                DialogGlass_Rebuild(&g_glass, hwnd);   // 拖动结束：玻璃底对齐到新位置背后的画面
                 UpdateAudioLayeredWindow();
                 return 0;
             }

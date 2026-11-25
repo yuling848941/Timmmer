@@ -78,7 +78,6 @@ typedef struct {
     int bufHeight;
     int contentHeight;
     BYTE* alphaSnapshot;      // GDI 绘制文字前的 alpha 通道快照
-    Backdrop backdrop;        // 面板弹出时背后的屏幕快照（用于玻璃底）
     GlassCache glass;         // 预渲染的玻璃底图：投影 + 玻璃 + 描边
     POINT finalPos;           // 窗口左上角的屏幕位置
     HFONT hFontBig;           // 大号时间（计时器当前字体）
@@ -139,19 +138,15 @@ static void DrawPanelText(HDC hdc, HFONT font, const wchar_t* text, RECT rc, COL
 // 玻璃底图
 // ===========================================
 
-// 面板显示前捕获它背后的屏幕并生成玻璃底图；之后的重绘只拷贝底图。
-// 窗口此刻尚未显示，不会把自己拍进快照。
+// 生成面板底图（投影 + 底色 + 描边 + 高光）；之后的重绘只拷贝底图。
 static void BuildPanelGlass(HWND hwnd, PanelData* d) {
     RECT wr;
     GetWindowRect(hwnd, &wr);
     d->finalPos.x = wr.left;
     d->finalPos.y = wr.top;
-    Backdrop_Release(&d->backdrop);
-    Backdrop_Capture(&d->backdrop, wr.left, wr.top, d->bufWidth, d->bufHeight);
     GlassCache_Build(&d->glass, d->bufWidth, d->bufHeight,
                      PANEL_SHADOW, PANEL_SHADOW, PANEL_WIDTH, d->contentHeight,
-                     PANEL_RADIUS, PANEL_SHADOW, PX(9),
-                     &d->backdrop, wr.left, wr.top, Ui_GetTheme());
+                     PANEL_RADIUS, PANEL_SHADOW, Ui_GetTheme());
 }
 
 // ===========================================
@@ -494,7 +489,7 @@ static LRESULT CALLBACK PanelProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             d->alphaSnapshot = (BYTE*)malloc((size_t)d->bufWidth * d->bufHeight);
             ReleaseDC(NULL, hdc);
 
-            // 窗口此刻尚未显示：先捕获背后的屏幕做玻璃底图
+            // 生成底图，再渲染内容
             BuildPanelGlass(hwnd, d);
             UpdatePanelDisplay(hwnd, d);
             SetTimer(hwnd, 1, 30, NULL);
@@ -502,7 +497,7 @@ static LRESULT CALLBACK PanelProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
 
         case WM_UI_THEME_CHANGED: {
-            // 亮暗色切换：背景快照仍然有效，只需按新主题重建底图并重绘
+            // 亮暗色切换：按新主题重建底图并重绘
             if (!d) return 0;
             BuildPanelGlass(hwnd, d);
             UpdatePanelDisplay(hwnd, d);
@@ -581,7 +576,6 @@ static LRESULT CALLBACK PanelProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 DeleteObject(d->hFontChip);
                 DeleteObject(d->hFontIcon);
                 free(d->alphaSnapshot);
-                Backdrop_Release(&d->backdrop);
                 GlassCache_Free(&d->glass);
                 free(d);
             }

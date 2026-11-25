@@ -150,9 +150,9 @@ typedef struct UiTheme {
     COLORREF buttonHover;     // 次按钮悬停
     COLORREF buttonPressed;   // 次按钮按下
 
-    // 玻璃面板（逐像素弹窗使用）
-    COLORREF glass;           // 玻璃底色
-    BYTE glassAlpha;          // 玻璃不透明度 0..255
+    // 玻璃风格面板（逐像素弹窗使用）
+    COLORREF glass;           // 面板底色
+    BYTE glassAlpha;          // 面板底色的不透明度 0..255（255 = 实心，不透出身后的内容；由系统实时合成）
     COLORREF panelBorder;     // 面板描边
     BYTE panelBorderAlpha;
     BYTE shadowAlpha;         // 面板投影不透明度

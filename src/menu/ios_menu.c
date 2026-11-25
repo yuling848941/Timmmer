@@ -67,7 +67,6 @@ typedef struct {
     BYTE* alphaSnapshot;     // GDI 绘制文字前的 alpha 通道快照（见 RestoreAlpha）
     HFONT hFontLabel;
     HFONT hFontIcon;
-    Backdrop backdrop;       // 菜单弹出时背后的屏幕快照（用于玻璃底）
     GlassCache glass;        // 预渲染的玻璃底图：投影 + 玻璃 + 描边
     BOOL isDraggingOwner;
     POINT dragStartScreen;
@@ -84,15 +83,11 @@ typedef struct {
 // 玻璃底图
 // ===========================================
 
-// 菜单显示前捕获它背后的屏幕并生成玻璃底图；之后的重绘只拷贝底图。
-// 窗口此刻尚未显示，不会把自己拍进快照。
-static void BuildMenuGlass(HWND hwnd, MenuData* d) {
-    Backdrop_Release(&d->backdrop);
-    Backdrop_Capture(&d->backdrop, d->finalPos.x, d->finalPos.y, d->bufWidth, d->bufHeight);
+// 生成菜单底图（投影 + 底色 + 描边 + 高光）；之后的重绘只拷贝底图。
+static void BuildMenuGlass(MenuData* d) {
     GlassCache_Build(&d->glass, d->bufWidth, d->bufHeight,
                      PX(MENU_SHADOW_SIZE), PX(MENU_SHADOW_SIZE), PX(MENU_WIDTH), d->menuHeight,
-                     PX(MENU_RADIUS), PX(MENU_SHADOW_SIZE), PX(9),
-                     &d->backdrop, d->finalPos.x, d->finalPos.y, Ui_GetTheme());
+                     PX(MENU_RADIUS), PX(MENU_SHADOW_SIZE), Ui_GetTheme());
 }
 
 // ===========================================
@@ -309,8 +304,8 @@ static LRESULT CALLBACK MenuProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 RECT wr; GetWindowRect(hwnd, &wr);
                 d->finalPos.x = wr.left; d->finalPos.y = wr.top;
             }
-            // 窗口此刻尚未显示：先捕获背后的屏幕做玻璃底图，再渲染内容
-            BuildMenuGlass(hwnd, d);
+            // 生成底图，再渲染内容
+            BuildMenuGlass(d);
             UpdateMenuDisplay(hwnd, d);
             // 出场动画从全透明开始：先把合成 alpha 置 0，避免显示后的第一帧闪现
             PresentMenu(hwnd, d, 0, 0);
@@ -320,9 +315,9 @@ static LRESULT CALLBACK MenuProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         }
         case WM_UI_THEME_CHANGED: {
-            // 亮暗色切换：背景快照仍然有效，只需按新主题重建底图并重绘
+            // 亮暗色切换：按新主题重建底图并重绘
             if (!d) return 0;
-            BuildMenuGlass(hwnd, d);
+            BuildMenuGlass(d);
             UpdateMenuDisplay(hwnd, d);
             return 0;
         }
@@ -422,7 +417,7 @@ static LRESULT CALLBACK MenuProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (d && d->owner) {
                 SendMessage(d->owner, WM_COMMAND, MAKEWPARAM(9999, 0), 0);
             }
-            if (d) { KillTimer(hwnd, 1); KillTimer(hwnd, 2); DeleteObject(d->hbmBuffer); DeleteDC(d->hdcBuffer); DeleteObject(d->hFontLabel); DeleteObject(d->hFontIcon); free(d->alphaSnapshot); Backdrop_Release(&d->backdrop); GlassCache_Free(&d->glass); free(d->items); free(d); }
+            if (d) { KillTimer(hwnd, 1); KillTimer(hwnd, 2); DeleteObject(d->hbmBuffer); DeleteDC(d->hdcBuffer); DeleteObject(d->hFontLabel); DeleteObject(d->hFontIcon); free(d->alphaSnapshot); GlassCache_Free(&d->glass); free(d->items); free(d); }
             g_currentMenuHwnd = NULL; return 0;
         }
     }

@@ -56,7 +56,7 @@ static HWND g_hAppearanceDialog = NULL;
 static HDC g_hdcBuffer = NULL;
 static HBITMAP g_hbmBuffer = NULL;
 static BYTE* g_pBits = NULL;
-static DialogGlass g_glass;       // 玻璃底：背景快照 + 预渲染底图
+static DialogGlass g_glass;       // 面板底图：投影 + 底色 + 描边 + 高光
 
 static COLORREF g_tempFontColor;
 static COLORREF g_tempBackgroundColor;
@@ -387,8 +387,8 @@ LRESULT CALLBACK ModernAppearanceDialogProc(HWND hwnd, UINT msg, WPARAM wParam, 
             wcscpy_s(g_tempFontName, 256, g_originalFontName);
             
             RebuildFontMenu();
-            // 窗口此刻尚未显示：捕获背后的屏幕做玻璃底图
-            DialogGlass_Init(&g_glass, hwnd, DLG_WIDTH, DLG_HEIGHT, DLG_SHADOW, DLG_RADIUS);
+            // 生成面板底图
+            DialogGlass_Init(&g_glass, DLG_WIDTH, DLG_HEIGHT, DLG_SHADOW, DLG_RADIUS);
             UpdateAppearanceLayeredWindow();
             // 启动刷新定时器（ID=2），确保主窗口在面板存活期间持续重绘
             // （计时器暂停时主窗口没有 WM_TIMER 驱动，需要由此补偿）
@@ -396,7 +396,7 @@ LRESULT CALLBACK ModernAppearanceDialogProc(HWND hwnd, UINT msg, WPARAM wParam, 
             return 0;
         }
         case WM_UI_THEME_CHANGED: {
-            DialogGlass_Rebuild(&g_glass, hwnd);
+            DialogGlass_Rebuild(&g_glass);
             UpdateAppearanceLayeredWindow();
             return 0;
         }
@@ -481,7 +481,7 @@ LRESULT CALLBACK ModernAppearanceDialogProc(HWND hwnd, UINT msg, WPARAM wParam, 
         }
         case WM_LBUTTONUP: {
             if (g_isDraggingSlider) { g_isDraggingSlider = FALSE; ReleaseCapture(); }
-            if (g_isDraggingDlg) { g_isDraggingDlg = FALSE; ReleaseCapture(); DialogGlass_Rebuild(&g_glass, hwnd); }
+            if (g_isDraggingDlg) { g_isDraggingDlg = FALSE; ReleaseCapture(); }
             
             POINT pt = {(short)LOWORD(lParam), (short)HIWORD(lParam)};
             HitTestID hit = HitTest(pt);
@@ -522,7 +522,7 @@ LRESULT CALLBACK ModernAppearanceDialogProc(HWND hwnd, UINT msg, WPARAM wParam, 
                     // 界面主题是全局设置：立即生效并保存，不属于"取消可回滚"的预览项
                     Ui_SetDark(hit == HIT_THEME_DARK);
                     SaveAppearanceConfig();
-                    DialogGlass_Rebuild(&g_glass, hwnd);
+                    DialogGlass_Rebuild(&g_glass);
                     UpdateAppearanceLayeredWindow();
                 } else if (hit == HIT_BTN_APPLY) {
                     SaveAppearanceConfig();

@@ -1,12 +1,14 @@
 #include "timer_dialog_internal.h"
 #include "timer_render_utils.h"
+#include "timer_theme.h"
+#include "timer_dialog_glass.h"
 #include "timer_buffer.h"
 #include <uxtheme.h>
 
 #define DLG_WIDTH  480
 #define DLG_HEIGHT 524
 #define DLG_SHADOW 30
-#define DLG_RADIUS 8
+#define DLG_RADIUS 12
 
 // Unified value limit for add/edit (minutes)
 #define PRESET_MIN_MINUTES 1
@@ -80,6 +82,7 @@ static HWND g_hPresetDialog = NULL;
 static HDC  g_hdcBuffer = NULL;
 static HBITMAP g_hbmBuffer = NULL;
 static BYTE* g_pBits = NULL;
+static DialogGlass g_glass;       // 玻璃底：背景快照 + 预渲染底图
 
 static int g_hoverRow = -1;
 static HitTestID g_pressedId = HIT_NONE;
@@ -170,17 +173,10 @@ static void StartInlineEdit(int presetIdx) {
 static void RenderPresetDialog(void) {
     if (!g_pBits) return;
     memset(g_pBits, 0, DLG_WIDTH * DLG_HEIGHT * 4);
+    const UiTheme* theme = Ui_GetTheme();
 
-    // Panel: soft shadow + fill + thin border (Win11 native dialog style)
-    DrawSoftShadowSDF(g_pBits, DLG_WIDTH, DLG_HEIGHT,
-        rcCard.left, rcCard.top, rcCard.right - rcCard.left, rcCard.bottom - rcCard.top,
-        DLG_RADIUS, DLG_SHADOW, 3, 0.08f);
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, DLG_RADIUS, DLG_RADIUS,
-        rcCard.left, rcCard.top, rcCard.right - rcCard.left, rcCard.bottom - rcCard.top,
-        GetRValue(UI_LIGHT_BG_PRIMARY), GetGValue(UI_LIGHT_BG_PRIMARY), GetBValue(UI_LIGHT_BG_PRIMARY), 255);
-    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, DLG_RADIUS, DLG_RADIUS,
-        rcCard.left, rcCard.top, rcCard.right - rcCard.left, rcCard.bottom - rcCard.top,
-        1, GetRValue(UI_LIGHT_BORDER), GetGValue(UI_LIGHT_BORDER), GetBValue(UI_LIGHT_BORDER), 255);
+    // 面板：投影 + 玻璃底 + 描边（预先算好的底图，这里只拷贝）
+    DialogGlass_Blit(&g_glass, g_pBits, DLG_WIDTH, DLG_HEIGHT);
 
     const MenuTexts* texts = GetMenuTexts();
 
@@ -233,11 +229,14 @@ static void RenderPresetDialog(void) {
     // ---- Add button ----
     BOOL addHover = (g_pressedId == HIT_BTN_ADD);
     COLORREF addFill = addHover ? UI_PRIMARY_HOVER : UI_PRIMARY_COLOR;
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4,
+    GlowRoundedRect(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6,
+        rcBtnAdd.left, rcBtnAdd.top, rcBtnAdd.right - rcBtnAdd.left, rcBtnAdd.bottom - rcBtnAdd.top,
+        GetRValue(addFill), GetGValue(addFill), GetBValue(addFill), theme->glow / 255.0f * 0.5f, 16);
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6,
         rcBtnAdd.left, rcBtnAdd.top, rcBtnAdd.right - rcBtnAdd.left, rcBtnAdd.bottom - rcBtnAdd.top,
         GetRValue(addFill), GetGValue(addFill), GetBValue(addFill), 255);
     RECT rcAddT = rcBtnAdd;
-    DrawTextSDF(g_hdcBuffer, texts->addPreset, &rcAddT, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, RGB(255, 255, 255));
+    DrawTextSDF(g_hdcBuffer, texts->addPreset, &rcAddT, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, theme->onAccent);
 
     // ---- Preset List label ----
     RECT rcPLLabel = {rcListArea.left, rcListArea.top - 24, rcListArea.right, rcListArea.top};
@@ -355,17 +354,20 @@ static void RenderPresetDialog(void) {
             GetRValue(UI_LIGHT_BORDER), GetGValue(UI_LIGHT_BORDER), GetBValue(UI_LIGHT_BORDER), 255);
         FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4,
             rcScrollbar.left, thumbY, SCROLLBAR_W, thumbH,
-            166, 166, 166, 255);
+            GetRValue(theme->text2), GetGValue(theme->text2), GetBValue(theme->text2), 200);
     }
 
     // ---- OK button ----
     BOOL okHover = (g_pressedId == HIT_BTN_OK);
     COLORREF okFill = okHover ? UI_PRIMARY_HOVER : UI_PRIMARY_COLOR;
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4,
+    GlowRoundedRect(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6,
+        rcBtnOK.left, rcBtnOK.top, rcBtnOK.right - rcBtnOK.left, rcBtnOK.bottom - rcBtnOK.top,
+        GetRValue(okFill), GetGValue(okFill), GetBValue(okFill), theme->glow / 255.0f * 0.5f, 16);
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6,
         rcBtnOK.left, rcBtnOK.top, rcBtnOK.right - rcBtnOK.left, rcBtnOK.bottom - rcBtnOK.top,
         GetRValue(okFill), GetGValue(okFill), GetBValue(okFill), 255);
     RECT rcOKT = rcBtnOK;
-    DrawTextSDF(g_hdcBuffer, texts->ok, &rcOKT, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, RGB(255, 255, 255));
+    DrawTextSDF(g_hdcBuffer, texts->ok, &rcOKT, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, theme->onAccent);
 
     // ---- Cancel button ----
     BOOL cancelHover = (g_pressedId == HIT_BTN_CANCEL);
@@ -386,7 +388,7 @@ static void RenderPresetDialog(void) {
     // ---- Inline error message below input ----
     if (g_showToast) {
         RECT rcErr = {rcInput.left, rcInput.bottom + 6, rcInput.right, rcInput.bottom + 28};
-        DrawTextSDF(g_hdcBuffer, texts->errorPresetMax, &rcErr, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontHint, RGB(200, 50, 50));
+        DrawTextSDF(g_hdcBuffer, texts->errorPresetMax, &rcErr, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontHint, theme->danger);
     }
 
     DeleteObject(hFontTitle);
@@ -503,9 +505,17 @@ LRESULT CALLBACK PresetEditDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
                 g_origPresets[i] = g_timerState.presetTimes[i];
             }
 
+            // 窗口此刻尚未显示：捕获背后的屏幕做玻璃底图
+            DialogGlass_Init(&g_glass, hwnd, DLG_WIDTH, DLG_HEIGHT, DLG_SHADOW, DLG_RADIUS);
             UpdatePresetWindow();
             SetTimer(hwnd, 2, 100, NULL);  // Main window refresh
             SetTimer(hwnd, 3, 500, NULL);  // Cursor blink / toast
+            return 0;
+        }
+
+        case WM_UI_THEME_CHANGED: {
+            DialogGlass_Rebuild(&g_glass, hwnd);
+            UpdatePresetWindow();
             return 0;
         }
 
@@ -645,7 +655,7 @@ LRESULT CALLBACK PresetEditDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
 
         case WM_LBUTTONUP: {
             if (g_draggingScrollbar) { g_draggingScrollbar = FALSE; ReleaseCapture(); }
-            if (g_draggingDlg) { g_draggingDlg = FALSE; ReleaseCapture(); }
+            if (g_draggingDlg) { g_draggingDlg = FALSE; ReleaseCapture(); DialogGlass_Rebuild(&g_glass, hwnd); }
 
             POINT pt = {(short)LOWORD(lParam), (short)HIWORD(lParam)};
 
@@ -879,6 +889,7 @@ LRESULT CALLBACK PresetEditDialogProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
             KillTimer(hwnd, 3);
             if (g_hbmBuffer) DeleteObject(g_hbmBuffer);
             if (g_hdcBuffer) DeleteDC(g_hdcBuffer);
+            DialogGlass_Destroy(&g_glass);
             g_hPresetDialog = NULL;
             EnableWindow(g_timerState.hMainWnd, TRUE);
             SetForegroundWindow(g_timerState.hMainWnd);

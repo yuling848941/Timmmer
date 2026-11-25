@@ -1,5 +1,7 @@
 #include "timer_dialog_internal.h"
 #include "timer_render_utils.h"
+#include "timer_theme.h"
+#include "timer_dialog_glass.h"
 #include "timer_window_utils.h"
 #include "timer_buffer.h"
 #include "ios_menu.h"
@@ -9,9 +11,9 @@
 #include <stdlib.h>
 
 #define DLG_WIDTH 460
-#define DLG_HEIGHT 560
+#define DLG_HEIGHT 640
 #define DLG_SHADOW 30
-#define DLG_RADIUS 8
+#define DLG_RADIUS 12
 
 // Layout Rects (Virtual hit-test areas, relative to window)
 static RECT rcCard = {DLG_SHADOW, DLG_SHADOW, DLG_WIDTH - DLG_SHADOW, DLG_HEIGHT - DLG_SHADOW};
@@ -27,8 +29,11 @@ static RECT rcFontCombo = {DLG_SHADOW + 20, DLG_SHADOW + 240, DLG_SHADOW + 380, 
 static RECT rcToggleCard = {DLG_SHADOW + 20, DLG_SHADOW + 310, DLG_SHADOW + 380, DLG_SHADOW + 370};
 static RECT rcToggleSwitch = {DLG_SHADOW + 380 - 15 - 34, DLG_SHADOW + 310 + (60-18)/2, DLG_SHADOW + 380 - 15, DLG_SHADOW + 310 + (60-18)/2 + 18};
 
-static RECT rcBtnApply = {DLG_SHADOW + 20, DLG_SHADOW + 400, DLG_SHADOW + 190, DLG_SHADOW + 440};
-static RECT rcBtnCancel = {DLG_SHADOW + 210, DLG_SHADOW + 400, DLG_SHADOW + 380, DLG_SHADOW + 440};
+// 界面主题（暗色 / 亮色）手动切换：分段控件，立即生效
+static RECT rcThemeSeg = {DLG_SHADOW + 210, DLG_SHADOW + 398, DLG_SHADOW + 380, DLG_SHADOW + 434};
+
+static RECT rcBtnApply = {DLG_SHADOW + 20, DLG_SHADOW + 470, DLG_SHADOW + 190, DLG_SHADOW + 510};
+static RECT rcBtnCancel = {DLG_SHADOW + 210, DLG_SHADOW + 470, DLG_SHADOW + 380, DLG_SHADOW + 510};
 
 typedef enum {
     HIT_NONE,
@@ -41,6 +46,8 @@ typedef enum {
     HIT_SLIDER_THUMB,
     HIT_FONT_COMBO,
     HIT_TOGGLE_BG,
+    HIT_THEME_DARK,
+    HIT_THEME_LIGHT,
     HIT_BTN_APPLY,
     HIT_BTN_CANCEL
 } HitTestID;
@@ -49,6 +56,7 @@ static HWND g_hAppearanceDialog = NULL;
 static HDC g_hdcBuffer = NULL;
 static HBITMAP g_hbmBuffer = NULL;
 static BYTE* g_pBits = NULL;
+static DialogGlass g_glass;       // 玻璃底：背景快照 + 预渲染底图
 
 static COLORREF g_tempFontColor;
 static COLORREF g_tempBackgroundColor;
@@ -124,16 +132,10 @@ static void DrawTextSDF(HDC hdc, const wchar_t* text, RECT* rc, int format, HFON
 
 static void RenderDialogUI() {
     memset(g_pBits, 0, DLG_WIDTH * DLG_HEIGHT * 4);
-    
-    // Panel: soft shadow + fill + thin border (Win11 native dialog style)
-    DrawSoftShadowSDF(g_pBits, DLG_WIDTH, DLG_HEIGHT, rcCard.left, rcCard.top,
-        rcCard.right-rcCard.left, rcCard.bottom-rcCard.top, DLG_RADIUS, DLG_SHADOW, 3, 0.08f);
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, DLG_RADIUS, DLG_RADIUS,
-        rcCard.left, rcCard.top, rcCard.right-rcCard.left, rcCard.bottom-rcCard.top,
-        GetRValue(UI_LIGHT_BG_PRIMARY), GetGValue(UI_LIGHT_BG_PRIMARY), GetBValue(UI_LIGHT_BG_PRIMARY), 255);
-    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, DLG_RADIUS, DLG_RADIUS,
-        rcCard.left, rcCard.top, rcCard.right-rcCard.left, rcCard.bottom-rcCard.top,
-        1, GetRValue(UI_LIGHT_BORDER), GetGValue(UI_LIGHT_BORDER), GetBValue(UI_LIGHT_BORDER), 255);
+    const UiTheme* theme = Ui_GetTheme();
+
+    // 面板：投影 + 玻璃底 + 描边（预先算好的底图，这里只拷贝）
+    DialogGlass_Blit(&g_glass, g_pBits, DLG_WIDTH, DLG_HEIGHT);
 
     // Prepare GDI for Text
     HFONT hFontLabel = CreateUiFont(15, FW_NORMAL, FALSE);
@@ -141,6 +143,7 @@ static void RenderDialogUI() {
     HFONT hFontBtn = CreateUiFont(14, FW_SEMIBOLD, FALSE);
     
     const MenuTexts* texts = GetMenuTexts();
+    BOOL english = (g_timerState.currentLanguage == TIMER_LANG_ENGLISH);
     
     // Row 1: Font Color
     RECT rcLabelFC = {rcFontColorBox.left, rcFontColorBox.top - 25, rcFontColorBox.right, rcFontColorBox.top};
@@ -166,14 +169,16 @@ static void RenderDialogUI() {
     RECT rcLabelOp = {rcSliderTrack.left, rcSliderTrack.top - 25, rcSliderTrack.right, rcSliderTrack.top};
     DrawTextSDF(g_hdcBuffer, texts->opacity, &rcLabelOp, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_PRIMARY);
     
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 3, 3, rcSliderTrack.left, rcSliderTrack.top, rcSliderTrack.right-rcSliderTrack.left, rcSliderTrack.bottom-rcSliderTrack.top, 220, 220, 225, 255);
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 3, 3, rcSliderTrack.left, rcSliderTrack.top, rcSliderTrack.right-rcSliderTrack.left, rcSliderTrack.bottom-rcSliderTrack.top,
+        GetRValue(theme->hair), GetGValue(theme->hair), GetBValue(theme->hair), theme->hairAlpha);
     float pct = (g_tempOpacity - 50) / 205.0f; // 与拖拽映射一致：50..255 → 0..1
     if (pct < 0) pct = 0; if (pct > 1) pct = 1;
     int fillW = (int)((rcSliderTrack.right - rcSliderTrack.left) * pct);
     if (fillW > 0) {
-        FillStripedRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 3, 3, rcSliderTrack.left, rcSliderTrack.top, fillW, rcSliderTrack.bottom-rcSliderTrack.top, 0, 95, 184, 255);
+        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 3, 3, rcSliderTrack.left, rcSliderTrack.top, fillW, rcSliderTrack.bottom-rcSliderTrack.top,
+            GetRValue(theme->accentFill), GetGValue(theme->accentFill), GetBValue(theme->accentFill), 255);
     }
-    
+
     int thumbX = rcSliderTrack.left + fillW;
     int thumbY = rcSliderTrack.top + (rcSliderTrack.bottom - rcSliderTrack.top)/2;
     // Thumb shadow
@@ -181,7 +186,8 @@ static void RenderDialogUI() {
     // Thumb body
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, sliderThumbR, sliderThumbR, thumbX - sliderThumbR, thumbY - sliderThumbR, sliderThumbR*2, sliderThumbR*2, 255, 255, 255, 255);
     // Thumb border
-    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, sliderThumbR, sliderThumbR, thumbX - sliderThumbR, thumbY - sliderThumbR, sliderThumbR*2, sliderThumbR*2, 2, 0, 95, 184, 255);
+    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, sliderThumbR, sliderThumbR, thumbX - sliderThumbR, thumbY - sliderThumbR, sliderThumbR*2, sliderThumbR*2, 2,
+        GetRValue(theme->accent), GetGValue(theme->accent), GetBValue(theme->accent), 255);
 
     wchar_t opText[16]; swprintf(opText, 16, L"%d%%", (int)(pct * 100));
     RECT rcOpText = {rcSliderTrack.right + 15, rcSliderTrack.top - 5, rcSliderTrack.right + 60, rcSliderTrack.bottom + 5};
@@ -192,8 +198,10 @@ static void RenderDialogUI() {
     DrawTextSDF(g_hdcBuffer, texts->font, &rcLabelFnt, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_PRIMARY);
     
     BOOL comboHover = (g_hoverId == HIT_FONT_COMBO);
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, rcFontCombo.left, rcFontCombo.top, rcFontCombo.right-rcFontCombo.left, rcFontCombo.bottom-rcFontCombo.top, 255, 255, 255, 255);
-    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, rcFontCombo.left, rcFontCombo.top, rcFontCombo.right-rcFontCombo.left, rcFontCombo.bottom-rcFontCombo.top, 2, comboHover?0:80, comboHover?120:100, comboHover?190:120, 255);
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, rcFontCombo.left, rcFontCombo.top, rcFontCombo.right-rcFontCombo.left, rcFontCombo.bottom-rcFontCombo.top,
+        GetRValue(theme->field), GetGValue(theme->field), GetBValue(theme->field), theme->fieldAlpha);
+    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, rcFontCombo.left, rcFontCombo.top, rcFontCombo.right-rcFontCombo.left, rcFontCombo.bottom-rcFontCombo.top,
+        comboHover ? 2 : 1, GetRValue(comboHover ? theme->accent : theme->ctrlLine), GetGValue(comboHover ? theme->accent : theme->ctrlLine), GetBValue(comboHover ? theme->accent : theme->ctrlLine), comboHover ? 220 : theme->ctrlLineAlpha);
     
     // 字体名止于箭头左侧 12px，长名用省略号，不再伸到箭头下方
     RECT rcFntText = rcFontCombo; rcFntText.left += 15; rcFntText.right = rcFontCombo.right - 36;
@@ -230,27 +238,40 @@ static void RenderDialogUI() {
     RECT rcToggleText = rcToggleCard; rcToggleText.left += 15;
     DrawTextSDF(g_hdcBuffer, texts->transparentBackground, &rcToggleText, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_PRIMARY);
     
-    // Draw Switch
-    int swX = rcToggleSwitch.left;
-    int swY = rcToggleSwitch.top;
-    int swW = rcToggleSwitch.right - rcToggleSwitch.left;
-    int swH = rcToggleSwitch.bottom - rcToggleSwitch.top;
-    if (g_tempTransparentBackground) {
-        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, swH/2, swH/2, swX, swY, swW, swH, 0, 95, 184, 255);
-        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, (swH-4)/2, (swH-4)/2, swX + swW - (swH-4) - 2, swY + 2, swH-4, swH-4, 255, 255, 255, 255);
-    } else {
-        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, swH/2, swH/2, swX, swY, swW, swH, 180, 180, 180, 255);
-        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, (swH-4)/2, (swH-4)/2, swX + 2, swY + 2, swH-4, swH-4, 255, 255, 255, 255);
+    // Draw Switch（主题化，右缘对齐卡片内侧）
+    DrawSwitchThemed(g_pBits, DLG_WIDTH, DLG_HEIGHT, DLG_SHADOW + 380 - 15 - 38, rcToggleCard.top, 60, g_tempTransparentBackground, 96, theme);
+
+    // Row 5: 界面主题（暗色 / 亮色）手动切换
+    {
+        RECT rcThemeLabel = {rcThemeSeg.left - 190, rcThemeSeg.top, rcThemeSeg.left - 12, rcThemeSeg.bottom};
+        DrawTextSDF(g_hdcBuffer, english ? L"Theme" : L"界面主题", &rcThemeLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE, hFontLabel, UI_LIGHT_TEXT_PRIMARY);
+        BOOL dark = Ui_IsDark();
+        int segW = (rcThemeSeg.right - rcThemeSeg.left) / 2;
+        FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8, rcThemeSeg.left, rcThemeSeg.top, rcThemeSeg.right - rcThemeSeg.left, rcThemeSeg.bottom - rcThemeSeg.top,
+            GetRValue(theme->hover), GetGValue(theme->hover), GetBValue(theme->hover), theme->hoverAlpha);
+        const wchar_t* themeLabels[2] = { english ? L"Dark" : L"暗色", english ? L"Light" : L"亮色" };
+        for (int i = 0; i < 2; i++) {
+            BOOL sel = (i == 0) ? dark : !dark;
+            int px = rcThemeSeg.left + i * segW + 2;
+            if (sel) {
+                FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, px, rcThemeSeg.top + 2, segW - 4, rcThemeSeg.bottom - rcThemeSeg.top - 4,
+                    GetRValue(theme->accentFill), GetGValue(theme->accentFill), GetBValue(theme->accentFill), 255);
+            }
+            RECT rcT = {px + 6, rcThemeSeg.top, px + segW - 6, rcThemeSeg.bottom};
+            DrawTextSDF(g_hdcBuffer, themeLabels[i], &rcT, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontSmall, sel ? theme->onAccent : UI_LIGHT_TEXT_SECONDARY);
+        }
     }
 
-    // Row 5: Action Buttons
+    // Row 6: Action Buttons
     // Apply
     BOOL applyHover = (g_hoverId == HIT_BTN_APPLY);
     COLORREF applyFill = applyHover ? UI_PRIMARY_HOVER : UI_PRIMARY_COLOR;
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rcBtnApply.left, rcBtnApply.top, rcBtnApply.right-rcBtnApply.left, rcBtnApply.bottom-rcBtnApply.top,
+    GlowRoundedRect(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, rcBtnApply.left, rcBtnApply.top, rcBtnApply.right-rcBtnApply.left, rcBtnApply.bottom-rcBtnApply.top,
+        GetRValue(applyFill), GetGValue(applyFill), GetBValue(applyFill), theme->glow / 255.0f * 0.5f, 16);
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, rcBtnApply.left, rcBtnApply.top, rcBtnApply.right-rcBtnApply.left, rcBtnApply.bottom-rcBtnApply.top,
         GetRValue(applyFill), GetGValue(applyFill), GetBValue(applyFill), 255);
     RECT rcApplyT = rcBtnApply;
-    DrawTextSDF(g_hdcBuffer, texts->ok, &rcApplyT, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, RGB(255,255,255));
+    DrawTextSDF(g_hdcBuffer, texts->ok, &rcApplyT, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, theme->onAccent);
 
     // Cancel
     BOOL cancelHover = (g_hoverId == HIT_BTN_CANCEL);
@@ -299,7 +320,7 @@ static void ApplyPreview() {
             SetWindowShadow(g_timerState.hMainWnd, FALSE);
             UpdateLayeredWindow_Render();
         } else {
-            SetWindowRoundedCorners(g_timerState.hMainWnd, 6);
+            SetWindowRoundedCorners(g_timerState.hMainWnd, 12);
             SetWindowShadow(g_timerState.hMainWnd, TRUE);
             SetLayeredWindowAttributes(g_timerState.hMainWnd, 0, g_tempOpacity, LWA_ALPHA);
             InvalidateRect(g_timerState.hMainWnd, NULL, TRUE);
@@ -314,6 +335,8 @@ static void ApplyPreview() {
             UpdateWindow(g_timerState.hMainWnd);
         }
     }
+    // 字色变化后重新推导强调色，使菜单与面板跟随计时器字色
+    Ui_RefreshAccent();
 }
 
 static HitTestID HitTest(POINT pt) {
@@ -323,7 +346,7 @@ static HitTestID HitTest(POINT pt) {
     if (PtInRect(&rcRandomText, pt)) return HIT_RANDOM;
     if (PtInRect(&rcSliderTrack, pt)) return HIT_SLIDER_TRACK;
     
-    int fillW = (int)((rcSliderTrack.right - rcSliderTrack.left) * (g_tempOpacity / 255.0f));
+    int fillW = (int)((rcSliderTrack.right - rcSliderTrack.left) * ((g_tempOpacity - 50) / 205.0f));
     int thumbX = rcSliderTrack.left + fillW;
     int thumbY = rcSliderTrack.top + (rcSliderTrack.bottom - rcSliderTrack.top)/2;
     RECT rcThumb = {thumbX - sliderThumbR, thumbY - sliderThumbR, thumbX + sliderThumbR, thumbY + sliderThumbR};
@@ -331,6 +354,10 @@ static HitTestID HitTest(POINT pt) {
     
     if (PtInRect(&rcFontCombo, pt)) return HIT_FONT_COMBO;
     if (PtInRect(&rcToggleCard, pt)) return HIT_TOGGLE_BG;
+    if (PtInRect(&rcThemeSeg, pt)) {
+        int segW = (rcThemeSeg.right - rcThemeSeg.left) / 2;
+        return (pt.x < rcThemeSeg.left + segW) ? HIT_THEME_DARK : HIT_THEME_LIGHT;
+    }
     if (PtInRect(&rcBtnApply, pt)) return HIT_BTN_APPLY;
     if (PtInRect(&rcBtnCancel, pt)) return HIT_BTN_CANCEL;
     if (PtInRect(&rcCard, pt)) return HIT_CARD_BG;
@@ -360,10 +387,17 @@ LRESULT CALLBACK ModernAppearanceDialogProc(HWND hwnd, UINT msg, WPARAM wParam, 
             wcscpy_s(g_tempFontName, 256, g_originalFontName);
             
             RebuildFontMenu();
+            // 窗口此刻尚未显示：捕获背后的屏幕做玻璃底图
+            DialogGlass_Init(&g_glass, hwnd, DLG_WIDTH, DLG_HEIGHT, DLG_SHADOW, DLG_RADIUS);
             UpdateAppearanceLayeredWindow();
             // 启动刷新定时器（ID=2），确保主窗口在面板存活期间持续重绘
             // （计时器暂停时主窗口没有 WM_TIMER 驱动，需要由此补偿）
             SetTimer(hwnd, 2, 100, NULL);
+            return 0;
+        }
+        case WM_UI_THEME_CHANGED: {
+            DialogGlass_Rebuild(&g_glass, hwnd);
+            UpdateAppearanceLayeredWindow();
             return 0;
         }
         case WM_TIMER: {
@@ -447,7 +481,7 @@ LRESULT CALLBACK ModernAppearanceDialogProc(HWND hwnd, UINT msg, WPARAM wParam, 
         }
         case WM_LBUTTONUP: {
             if (g_isDraggingSlider) { g_isDraggingSlider = FALSE; ReleaseCapture(); }
-            if (g_isDraggingDlg) { g_isDraggingDlg = FALSE; ReleaseCapture(); }
+            if (g_isDraggingDlg) { g_isDraggingDlg = FALSE; ReleaseCapture(); DialogGlass_Rebuild(&g_glass, hwnd); }
             
             POINT pt = {(short)LOWORD(lParam), (short)HIWORD(lParam)};
             HitTestID hit = HitTest(pt);
@@ -483,6 +517,12 @@ LRESULT CALLBACK ModernAppearanceDialogProc(HWND hwnd, UINT msg, WPARAM wParam, 
                 } else if (hit == HIT_TOGGLE_BG) {
                     g_tempTransparentBackground = !g_tempTransparentBackground;
                     ApplyPreview();
+                    UpdateAppearanceLayeredWindow();
+                } else if (hit == HIT_THEME_DARK || hit == HIT_THEME_LIGHT) {
+                    // 界面主题是全局设置：立即生效并保存，不属于"取消可回滚"的预览项
+                    Ui_SetDark(hit == HIT_THEME_DARK);
+                    SaveAppearanceConfig();
+                    DialogGlass_Rebuild(&g_glass, hwnd);
                     UpdateAppearanceLayeredWindow();
                 } else if (hit == HIT_BTN_APPLY) {
                     SaveAppearanceConfig();
@@ -557,6 +597,7 @@ LRESULT CALLBACK ModernAppearanceDialogProc(HWND hwnd, UINT msg, WPARAM wParam, 
             FreeFontMenu();
             if (g_hbmBuffer) DeleteObject(g_hbmBuffer);
             if (g_hdcBuffer) DeleteDC(g_hdcBuffer);
+            DialogGlass_Destroy(&g_glass);
             g_hAppearanceDialog = NULL;
             EnableWindow(g_timerState.hMainWnd, TRUE);
             SetForegroundWindow(g_timerState.hMainWnd);

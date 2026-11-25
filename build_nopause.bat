@@ -30,7 +30,9 @@ gcc -o build\Timmmer.exe ^
     src\ui\timer_buffer.c ^
     src\ui\timer_window_utils.c ^
     src\ui\timer_render_utils.c ^
+    src\ui\timer_theme.c ^
     src\dialogs\timer_dialog_common.c ^
+    src\dialogs\timer_dialog_glass.c ^
     src\dialogs\timer_dialog_format.c ^
     src\dialogs\timer_dialog_settime.c ^
     src\dialogs\timer_dialog_preset.c ^

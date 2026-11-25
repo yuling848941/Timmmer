@@ -424,9 +424,33 @@ LRESULT CALLBACK IntegratedDialogProc(HWND hDlg, UINT message, WPARAM wParam, LP
             SetTextColor(hdc, UI_LIGHT_TEXT_PRIMARY);
             SetBkColor(hdc, UI_LIGHT_BG_PRIMARY);
             static HBRUSH hDlgBgBrush = NULL;
-            if (!hDlgBgBrush) hDlgBgBrush = CreateSolidBrush(UI_LIGHT_BG_PRIMARY);
+            static COLORREF hDlgBgBrushColor = 0;
+            if (!hDlgBgBrush || hDlgBgBrushColor != UI_LIGHT_BG_PRIMARY) {
+                if (hDlgBgBrush) DeleteObject(hDlgBgBrush);
+                hDlgBgBrushColor = UI_LIGHT_BG_PRIMARY;
+                hDlgBgBrush = CreateSolidBrush(hDlgBgBrushColor);
+            }
             return (LRESULT)hDlgBgBrush;
         }
+
+        case WM_CTLCOLOREDIT: {
+            // 原生编辑框：文字与底色跟随主题（暗色下不再是白底）
+            HDC hdc = (HDC)wParam;
+            SetTextColor(hdc, UI_LIGHT_TEXT_PRIMARY);
+            SetBkColor(hdc, UI_LIGHT_SURFACE);
+            static HBRUSH hEditBrush = NULL;
+            static COLORREF hEditBrushColor = 0;
+            if (!hEditBrush || hEditBrushColor != UI_LIGHT_SURFACE) {
+                if (hEditBrush) DeleteObject(hEditBrush);
+                hEditBrushColor = UI_LIGHT_SURFACE;
+                hEditBrush = CreateSolidBrush(hEditBrushColor);
+            }
+            return (LRESULT)hEditBrush;
+        }
+
+        case WM_UI_THEME_CHANGED:
+            InvalidateRect(hDlg, NULL, TRUE);
+            return 0;
 
         case WM_ERASEBKGND: {
             RECT r; GetClientRect(hDlg, &r);

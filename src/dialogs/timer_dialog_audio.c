@@ -1,5 +1,7 @@
 #include "timer_dialog_internal.h"
 #include "timer_render_utils.h"
+#include "timer_theme.h"
+#include "timer_dialog_glass.h"
 #include "ios_menu.h"
 #include <commdlg.h>
 #include <stdio.h>
@@ -10,8 +12,8 @@
 // ============================================
 #define DLG_WIDTH  500
 #define DLG_HEIGHT 380
-#define DLG_SHADOW 20
-#define DLG_RADIUS 8
+#define DLG_SHADOW 24
+#define DLG_RADIUS 12
 
 // Hit test IDs
 typedef enum {
@@ -33,6 +35,7 @@ static HWND g_hAudioDialog = NULL;
 static HDC  g_hdcBuffer  = NULL;
 static HBITMAP g_hbmBuffer = NULL;
 static BYTE* g_pBits = NULL;
+static DialogGlass g_glass;       // 玻璃底：背景快照 + 预渲染底图
 
 // Temporary state (mirrors g_timerState)
 static BOOL  g_tempEnableAudio;
@@ -90,17 +93,10 @@ static void DrawTextSDF(HDC hdc, const wchar_t* text, RECT* rc, int format, HFON
 
 static void RenderDialogUI() {
     memset(g_pBits, 0, DLG_WIDTH * DLG_HEIGHT * 4);
+    const UiTheme* theme = Ui_GetTheme();
 
-    // Panel: soft shadow + fill + thin border (Win11 native dialog style)
-    RECT rcCard = {DLG_SHADOW, DLG_SHADOW, DLG_WIDTH - DLG_SHADOW, DLG_HEIGHT - DLG_SHADOW};
-    DrawSoftShadowSDF(g_pBits, DLG_WIDTH, DLG_HEIGHT, rcCard.left, rcCard.top,
-        rcCard.right - rcCard.left, rcCard.bottom - rcCard.top, DLG_RADIUS, DLG_SHADOW, 3, 0.08f);
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, DLG_RADIUS, DLG_RADIUS,
-        rcCard.left, rcCard.top, rcCard.right - rcCard.left, rcCard.bottom - rcCard.top,
-        GetRValue(UI_LIGHT_BG_PRIMARY), GetGValue(UI_LIGHT_BG_PRIMARY), GetBValue(UI_LIGHT_BG_PRIMARY), 255);
-    DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, DLG_RADIUS, DLG_RADIUS,
-        rcCard.left, rcCard.top, rcCard.right - rcCard.left, rcCard.bottom - rcCard.top,
-        1, GetRValue(UI_LIGHT_BORDER), GetGValue(UI_LIGHT_BORDER), GetBValue(UI_LIGHT_BORDER), 255);
+    // 面板：投影 + 玻璃底 + 描边（预先算好的底图，这里只拷贝）
+    DialogGlass_Blit(&g_glass, g_pBits, DLG_WIDTH, DLG_HEIGHT);
 
     const MenuTexts* texts = GetMenuTexts();
 
@@ -113,20 +109,16 @@ static void RenderDialogUI() {
     // Label "启用音频提示"
     RECT rcToggleLabel = {CONTENT_L, DLG_SHADOW + 52, CONTENT_R - 60, DLG_SHADOW + 76};
     DrawTextSDF(g_hdcBuffer, texts->enableAudio, &rcToggleLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS, hFontLabel, UI_LIGHT_TEXT_PRIMARY);
-    // Switch control
-    DrawSwitchWin11(g_pBits, DLG_WIDTH, DLG_HEIGHT, rcToggleSwitch.left, DLG_SHADOW + 55,
-                    rcToggleSwitch.bottom - rcToggleSwitch.top, g_tempEnableAudio);
+    // Switch control（主题化，右缘对齐 CONTENT_R）
+    DrawSwitchThemed(g_pBits, DLG_WIDTH, DLG_HEIGHT, CONTENT_R - 38, DLG_SHADOW + 52, 24, g_tempEnableAudio, 96, theme);
 
     // ---- Segment: 音频语言 ----
     RECT rcSegLabel = {CONTENT_L, DLG_SHADOW + 100, CONTENT_R, DLG_SHADOW + 120};
-    DrawTextSDF(g_hdcBuffer, texts->audioLanguage, &rcSegLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS, hFontSmall, UI_LIGHT_TEXT_PRIMARY);
+    DrawTextSDF(g_hdcBuffer, texts->audioLanguage, &rcSegLabel, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS, hFontSmall, UI_LIGHT_TEXT_SECONDARY);
 
     // Segmented Control background
-    BOOL segHover = (g_hoverId == HIT_SEGMENT_CH || g_hoverId == HIT_SEGMENT_EN || g_hoverId == HIT_SEGMENT_CUSTOM);
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8, rcSegmented.left, rcSegmented.top, rcSegmented.right - rcSegmented.left, rcSegmented.bottom - rcSegmented.top, 249, 249, 249, 255);
-    if (segHover) {
-        DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8, rcSegmented.left, rcSegmented.top, rcSegmented.right - rcSegmented.left, rcSegmented.bottom - rcSegmented.top, 2, 166, 176, 189, 80);
-    }
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 8, 8, rcSegmented.left, rcSegmented.top, rcSegmented.right - rcSegmented.left, rcSegmented.bottom - rcSegmented.top,
+        GetRValue(theme->hover), GetGValue(theme->hover), GetBValue(theme->hover), theme->hoverAlpha);
 
     // Three segments (equal width)
     int segW = (rcSegmented.right - rcSegmented.left) / 3;
@@ -134,17 +126,15 @@ static void RenderDialogUI() {
     const wchar_t* segLabels[3] = { english ? L"Chinese" : L"中文", english ? L"English" : L"英文", english ? L"Custom" : L"自定义" };
     for (int i = 0; i < 3; i++) {
         if (i == g_tempAudioType) {
-            // Selected: blue pill
+            // Selected: 强调色实心
             int px = rcSegmented.left + i * segW + 2;
             int pw = segW - 4;
             BOOL isPressed = (i == 0 && g_pressedId == HIT_SEGMENT_CH) || (i == 1 && g_pressedId == HIT_SEGMENT_EN) || (i == 2 && g_pressedId == HIT_SEGMENT_CUSTOM);
-            if (isPressed) {
-                FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, px, rcSegmented.top + 2, pw, rcSegmented.bottom - rcSegmented.top - 4, 0, 62, 124, 255);
-            } else {
-                FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, px, rcSegmented.top + 2, pw, rcSegmented.bottom - rcSegmented.top - 4, 0, 95, 184, 255);
-            }
+            COLORREF segFill = isPressed ? theme->accentPressed : theme->accentFill;
+            FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, px, rcSegmented.top + 2, pw, rcSegmented.bottom - rcSegmented.top - 4,
+                GetRValue(segFill), GetGValue(segFill), GetBValue(segFill), 255);
             RECT rcSegText = {px + 10, rcSegmented.top, px + pw - 10, rcSegmented.bottom};
-            DrawTextSDF(g_hdcBuffer, segLabels[i], &rcSegText, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontSmall, RGB(255, 255, 255));
+            DrawTextSDF(g_hdcBuffer, segLabels[i], &rcSegText, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontSmall, theme->onAccent);
         } else {
             // Not selected
             HitTestID thisHit = (i == 0) ? HIT_SEGMENT_CH : (i == 1 ? HIT_SEGMENT_EN : HIT_SEGMENT_CUSTOM);
@@ -164,9 +154,9 @@ static void RenderDialogUI() {
     BOOL inputEnabled = g_tempEnableAudio && g_tempAudioType == 2;
 
     FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, rcInputBox.left, rcInputBox.top, rcInputBox.right - rcInputBox.left, rcInputBox.bottom - rcInputBox.top,
-        inputEnabled ? 255 : 248, inputEnabled ? 255 : 248, inputEnabled ? 255 : 248, 255);
+        GetRValue(theme->field), GetGValue(theme->field), GetBValue(theme->field), inputEnabled ? theme->fieldAlpha : (BYTE)(theme->fieldAlpha / 2));
     DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, rcInputBox.left, rcInputBox.top, rcInputBox.right - rcInputBox.left, rcInputBox.bottom - rcInputBox.top,
-        2, inputEnabled ? 200 : 220, inputEnabled ? 200 : 220, inputEnabled ? 200 : 220, inputEnabled ? 80 : 40);
+        1, GetRValue(theme->ctrlLine), GetGValue(theme->ctrlLine), GetBValue(theme->ctrlLine), inputEnabled ? theme->ctrlLineAlpha : (BYTE)(theme->ctrlLineAlpha / 2));
 
     // Path text（长路径用路径省略号，保留文件名尾部）
     const wchar_t* pathText = wcslen(g_tempCustomPath) > 0 ? g_tempCustomPath : (english ? L"Select a custom audio file..." : L"选择自定义音频文件...");
@@ -182,7 +172,7 @@ static void RenderDialogUI() {
         GetRValue(browseBg), GetGValue(browseBg), GetBValue(browseBg), 255);
     if (inputEnabled) {
         DrawRoundedRectOutlineAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, rcBrowseBtn.left, rcBrowseBtn.top, rcBrowseBtn.right - rcBrowseBtn.left, rcBrowseBtn.bottom - rcBrowseBtn.top,
-            2, btnHover ? 150 : 200, btnHover ? 150 : 200, btnHover ? 150 : 200, 100);
+            1, GetRValue(theme->ctrlLine), GetGValue(theme->ctrlLine), GetBValue(theme->ctrlLine), btnHover ? (BYTE)min(255, theme->ctrlLineAlpha + 50) : theme->ctrlLineAlpha);
     }
 
     // Folder icon + "浏览"（按钮加宽后图标与文字都有充足空间）
@@ -197,9 +187,11 @@ static void RenderDialogUI() {
     BOOL okHover = (g_hoverId == HIT_BTN_OK);
     BOOL okPressed = (g_pressedId == HIT_BTN_OK);
     COLORREF okBg = okPressed ? UI_PRIMARY_PRESSED : (okHover ? UI_PRIMARY_HOVER : UI_PRIMARY_COLOR);
-    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 4, 4, rcBtnOk.left, rcBtnOk.top, rcBtnOk.right - rcBtnOk.left, rcBtnOk.bottom - rcBtnOk.top, GetRValue(okBg), GetGValue(okBg), GetBValue(okBg), 255);
+    GlowRoundedRect(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, rcBtnOk.left, rcBtnOk.top, rcBtnOk.right - rcBtnOk.left, rcBtnOk.bottom - rcBtnOk.top,
+        GetRValue(okBg), GetGValue(okBg), GetBValue(okBg), theme->glow / 255.0f * 0.5f, 16);
+    FillRoundedRectAA(g_pBits, DLG_WIDTH, DLG_HEIGHT, 6, 6, rcBtnOk.left, rcBtnOk.top, rcBtnOk.right - rcBtnOk.left, rcBtnOk.bottom - rcBtnOk.top, GetRValue(okBg), GetGValue(okBg), GetBValue(okBg), 255);
     RECT rcOkText = rcBtnOk;
-    DrawTextSDF(g_hdcBuffer, texts->ok, &rcOkText, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, RGB(255, 255, 255));
+    DrawTextSDF(g_hdcBuffer, texts->ok, &rcOkText, DT_CENTER | DT_VCENTER | DT_SINGLELINE, hFontBtn, theme->onAccent);
 
     BOOL cancelHover = (g_hoverId == HIT_BTN_CANCEL);
     BOOL cancelPressed = (g_pressedId == HIT_BTN_CANCEL);
@@ -287,6 +279,14 @@ static LRESULT CALLBACK ModernAudioDialogProc(HWND hwnd, UINT msg, WPARAM wParam
             g_tempAudioType = g_originalAudioType;
             wcscpy_s(g_tempCustomPath, MAX_PATH, g_originalCustomPath);
 
+            // 窗口此刻尚未显示：捕获背后的屏幕做玻璃底图
+            DialogGlass_Init(&g_glass, hwnd, DLG_WIDTH, DLG_HEIGHT, DLG_SHADOW, DLG_RADIUS);
+            UpdateAudioLayeredWindow();
+            return 0;
+        }
+
+        case WM_UI_THEME_CHANGED: {
+            DialogGlass_Rebuild(&g_glass, hwnd);
             UpdateAudioLayeredWindow();
             return 0;
         }
@@ -358,6 +358,7 @@ static LRESULT CALLBACK ModernAudioDialogProc(HWND hwnd, UINT msg, WPARAM wParam
                 g_isDraggingDlg = FALSE;
                 ReleaseCapture();
                 g_pressedId = HIT_NONE;
+                DialogGlass_Rebuild(&g_glass, hwnd);   // 拖动结束：玻璃底对齐到新位置背后的画面
                 UpdateAudioLayeredWindow();
                 return 0;
             }
@@ -414,6 +415,7 @@ static LRESULT CALLBACK ModernAudioDialogProc(HWND hwnd, UINT msg, WPARAM wParam
         case WM_DESTROY: {
             if (g_hbmBuffer) DeleteObject(g_hbmBuffer);
             if (g_hdcBuffer) DeleteDC(g_hdcBuffer);
+            DialogGlass_Destroy(&g_glass);
             g_hAudioDialog = NULL;
             EnableWindow(g_timerState.hMainWnd, TRUE);
             SetForegroundWindow(g_timerState.hMainWnd);

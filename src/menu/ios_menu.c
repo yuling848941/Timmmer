@@ -16,15 +16,15 @@
 #include "timer_render_utils.h"
 
 // ===========================================
-// iOS 风格设计常量（旗舰版）
-// 以下均为 96 DPI 基准值，运行时经 PX() 按窗口所在显示器 DPI 缩放
+// 菜单布局常量
+// 以下均为 96 DPI 基准值，运行时经 PX() 按窗口所在显示器 DPI 缩放。
+// 颜色不在本文件定义，统一取自主题（timer_theme.c），以跟随暗色 / 亮色切换。
 // ===========================================
 
-#define MENU_WIDTH              250
-#define MENU_ITEM_HEIGHT        32
-#define MENU_RADIUS             8
-#define MENU_SHADOW_SIZE        20
-#define MENU_SHADOW_OFFSET_Y    4
+#define MENU_WIDTH              272
+#define MENU_ITEM_HEIGHT        34
+#define MENU_RADIUS             12
+#define MENU_SHADOW_SIZE        24
 
 #define MENU_PADDING_TOP        6
 #define MENU_PADDING_BOTTOM     6
@@ -32,19 +32,14 @@
 #define MENU_PADDING_RIGHT      12
 
 #define MENU_ICON_SIZE          16
-#define MENU_ICON_BOX_W         32
-#define MENU_TEXT_OFFSET        44
+#define MENU_ICON_BOX_W         30
+#define MENU_TEXT_OFFSET        42
 #define MENU_LABEL_EM           14
 
-#define SWITCH_WIDTH            34
+#define SWITCH_WIDTH            38
 
 #define MENU_ANIM_MS            160
 #define MENU_ANIM_SLIDE         4
-
-#define COLOR_TEXT_PRIMARY      RGB(32, 32, 32)
-#define COLOR_TEXT_SECONDARY    RGB(132, 132, 132)
-#define COLOR_ICON              RGB(104, 104, 104)
-#define COLOR_ACCENT            RGB(0, 95, 184)
 
 static UINT g_menuDpi = 96;
 #define PX(v) ScalePx((v), g_menuDpi)
@@ -69,9 +64,11 @@ typedef struct {
     void* pBits;
     int bufWidth;
     int bufHeight;
-    BYTE* alphaSnapshot;     // GDI 绘制文字前的 alpha 通道快照（见 RestoreAlphaChannel）
+    BYTE* alphaSnapshot;     // GDI 绘制文字前的 alpha 通道快照（见 RestoreAlpha）
     HFONT hFontLabel;
     HFONT hFontIcon;
+    Backdrop backdrop;       // 菜单弹出时背后的屏幕快照（用于玻璃底）
+    GlassCache glass;        // 预渲染的玻璃底图：投影 + 玻璃 + 描边
     BOOL isDraggingOwner;
     POINT dragStartScreen;
     RECT ownerStartRect;
@@ -84,9 +81,19 @@ typedef struct {
 } MenuData;
 
 // ===========================================
-// 绘图引擎（抗锯齿）
-// 核心函数（含 Win11 开关）在 timer_render_utils.c
+// 玻璃底图
 // ===========================================
+
+// 菜单显示前捕获它背后的屏幕并生成玻璃底图；之后的重绘只拷贝底图。
+// 窗口此刻尚未显示，不会把自己拍进快照。
+static void BuildMenuGlass(HWND hwnd, MenuData* d) {
+    Backdrop_Release(&d->backdrop);
+    Backdrop_Capture(&d->backdrop, d->finalPos.x, d->finalPos.y, d->bufWidth, d->bufHeight);
+    GlassCache_Build(&d->glass, d->bufWidth, d->bufHeight,
+                     PX(MENU_SHADOW_SIZE), PX(MENU_SHADOW_SIZE), PX(MENU_WIDTH), d->menuHeight,
+                     PX(MENU_RADIUS), PX(MENU_SHADOW_SIZE), PX(9),
+                     &d->backdrop, d->finalPos.x, d->finalPos.y, Ui_GetTheme());
+}
 
 // ===========================================
 // 菜单项内容绘制
@@ -94,6 +101,7 @@ typedef struct {
 
 static void DrawItemContent(MenuData* data, int idx, int mx, int y) {
     const IosMenuItem* it = &data->items[idx];
+    const UiTheme* theme = Ui_GetTheme();
     HDC hdc = data->hdcBuffer;
     int itemH = PX(MENU_ITEM_HEIGHT);
     int ix = mx + PX(MENU_PADDING_LEFT);
@@ -101,9 +109,11 @@ static void DrawItemContent(MenuData* data, int idx, int mx, int y) {
     int rightEdge = mx + PX(MENU_WIDTH) - PX(MENU_PADDING_RIGHT);
     if (it->type == IOS_MENU_ITEM_SWITCH) rightEdge -= PX(SWITCH_WIDTH) + PX(12);
 
+    // 悬停项的图标转为强调色
+    COLORREF iconColor = (idx == data->hoverIndex) ? theme->accent : theme->text2;
     if (it->iconChar && wcslen(it->iconChar) == 1) {
         RECT rc = { ix, y, ix + PX(MENU_ICON_BOX_W), y + itemH };
-        DrawTextClearType(hdc, data->hFontIcon, it->iconChar, rc, COLOR_ICON, DT_CENTER);
+        DrawTextClearType(hdc, data->hFontIcon, it->iconChar, rc, iconColor, DT_CENTER);
     }
 
     RECT rcText = { tx, y, rightEdge, y + itemH };
@@ -111,10 +121,10 @@ static void DrawItemContent(MenuData* data, int idx, int mx, int y) {
         // 辅助文本靠右对齐，主标签让出其宽度
         int subW = MeasureTextWidth(hdc, data->hFontLabel, it->subLabel);
         RECT rcSub = { rightEdge - subW - PX(8), y, rightEdge, y + itemH };
-        DrawTextClearType(hdc, data->hFontLabel, it->subLabel, rcSub, COLOR_TEXT_SECONDARY, DT_RIGHT);
+        DrawTextClearType(hdc, data->hFontLabel, it->subLabel, rcSub, theme->dim, DT_RIGHT);
         rcText.right = rcSub.left - PX(8);
     }
-    DrawTextClearType(hdc, data->hFontLabel, it->label, rcText, COLOR_TEXT_PRIMARY, DT_LEFT | DT_END_ELLIPSIS);
+    DrawTextClearType(hdc, data->hFontLabel, it->label, rcText, theme->text, DT_LEFT | DT_END_ELLIPSIS);
 }
 
 // ===========================================
@@ -123,10 +133,13 @@ static void DrawItemContent(MenuData* data, int idx, int mx, int y) {
 
 static void RenderMenuContent(MenuData* data) {
     BYTE* pixels = (BYTE*)data->pBits;
-    int w = data->bufWidth, h = data->bufHeight, mh = data->menuHeight;
+    int w = data->bufWidth, h = data->bufHeight;
     size_t pixelCount = (size_t)w * h;
+    const UiTheme* theme = Ui_GetTheme();
 
+    // 底图：投影 + 玻璃底 + 描边（预先算好，这里只拷贝）
     memset(pixels, 0, pixelCount * 4);
+    GlassCache_Blit(&data->glass, pixels, w, h);
 
     int mx = PX(MENU_SHADOW_SIZE);
     int my = PX(MENU_SHADOW_SIZE);
@@ -134,28 +147,24 @@ static void RenderMenuContent(MenuData* data) {
     int itemH = PX(MENU_ITEM_HEIGHT);
     int hair = max(1, PX(1));
 
-    // 绘制全局真软阴影
-    DrawSoftShadowSDF(pixels, w, h, mx, my, mw, mh, PX(MENU_RADIUS), PX(MENU_SHADOW_SIZE), PX(MENU_SHADOW_OFFSET_Y), 0.18f);
-
-    // 1px 描边（画在主体外侧一圈，随后被主体盖住内半部分）
-    FillRoundedRectAA(pixels, w, h, PX(MENU_RADIUS), PX(MENU_RADIUS), mx - hair, my - hair, mw + 2 * hair, mh + 2 * hair, 0, 0, 0, 26);
-
-    // 菜单主体：不透明。此前为 245/255，背景里的深色内容会隐约透出，在花哨的桌面上像"脏影"
-    FillRoundedRectAA(pixels, w, h, PX(MENU_RADIUS), PX(MENU_RADIUS), mx, my, mw, mh, 252, 252, 252, 255);
-
     int y = my + PX(MENU_PADDING_TOP);
     int lastVisible = data->topIndex + data->visibleCount;
     if (lastVisible > data->itemCount) lastVisible = data->itemCount;
     for (int i = data->topIndex; i < lastVisible; i++) {
         const IosMenuItem* it = &data->items[i];
         if (i == data->hoverIndex) {
-            FillRoundedRectAA(pixels, w, h, PX(6), PX(6), mx + PX(6), y + PX(2), mw - PX(12), itemH - PX(4), 0, 0, 0, 20);
+            // 悬停：浅色底 + 左侧强调色竖条
+            FillRoundedRectAA(pixels, w, h, PX(6), PX(6), mx + PX(4), y + PX(1), mw - PX(8), itemH - PX(2),
+                              GetRValue(theme->hover), GetGValue(theme->hover), GetBValue(theme->hover), theme->hoverAlpha);
+            FillRoundedRectAA(pixels, w, h, 1, 1, mx + PX(4), y + PX(9), PX(2), itemH - PX(18),
+                              GetRValue(theme->accent), GetGValue(theme->accent), GetBValue(theme->accent), 255);
         }
         if (it->type == IOS_MENU_ITEM_SWITCH) {
-            DrawSwitchWin11Scaled(pixels, w, h, mx + mw - PX(SWITCH_WIDTH) - PX(MENU_PADDING_RIGHT), y, itemH, it->isSwitchOn, g_menuDpi);
+            DrawSwitchThemed(pixels, w, h, mx + mw - PX(SWITCH_WIDTH) - PX(MENU_PADDING_RIGHT), y, itemH, it->isSwitchOn, g_menuDpi, theme);
         }
         if (it->hasDividerAfter && i < data->itemCount - 1) {
-            DrawHairlineH(pixels, w, mx + PX(MENU_TEXT_OFFSET), mx + mw - PX(MENU_PADDING_RIGHT), y + itemH, 0.09f, hair);
+            DrawHLine(pixels, w, mx + PX(MENU_TEXT_OFFSET), mx + mw - PX(MENU_PADDING_RIGHT), y + itemH,
+                      GetRValue(theme->hair), GetGValue(theme->hair), GetBValue(theme->hair), theme->hairAlpha, hair);
         }
         y += itemH;
     }
@@ -165,14 +174,16 @@ static void RenderMenuContent(MenuData* data) {
         int trackX = mx + mw - PX(5);
         int trackTop = my + PX(MENU_PADDING_TOP);
         int trackH = data->visibleCount * itemH;
-        FillRoundedRectAA(pixels, w, h, PX(2), PX(2), trackX, trackTop, PX(3), trackH, 0, 0, 0, 18);
+        FillRoundedRectAA(pixels, w, h, PX(2), PX(2), trackX, trackTop, PX(3), trackH,
+                          GetRValue(theme->hair), GetGValue(theme->hair), GetBValue(theme->hair), theme->hairAlpha);
         int thumbH = max(PX(20), trackH * data->visibleCount / data->itemCount);
         int thumbTravel = trackH - thumbH;
         int thumbY = trackTop + (data->maxTopIndex > 0 ? thumbTravel * data->topIndex / data->maxTopIndex : 0);
-        FillRoundedRectAA(pixels, w, h, PX(2), PX(2), trackX, thumbY, PX(3), thumbH, 0, 0, 0, 90);
+        FillRoundedRectAA(pixels, w, h, PX(2), PX(2), trackX, thumbY, PX(3), thumbH,
+                          GetRValue(theme->text2), GetGValue(theme->text2), GetBValue(theme->text2), 150);
     }
 
-    // 文字与图标：主体内部已不透明，直接用 GDI 绘制以保留 ClearType；
+    // 文字与图标：面板内部已不透明，直接用 GDI 绘制以保留 ClearType；
     // GDI 会把写过的像素 alpha 置 0，绘制前后用快照把 alpha 还原
     y = my + PX(MENU_PADDING_TOP);
     SnapshotAlpha(pixels, data->alphaSnapshot, pixelCount);
@@ -298,10 +309,21 @@ static LRESULT CALLBACK MenuProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 RECT wr; GetWindowRect(hwnd, &wr);
                 d->finalPos.x = wr.left; d->finalPos.y = wr.top;
             }
-            d->animStart = GetTickCount();
+            // 窗口此刻尚未显示：先捕获背后的屏幕做玻璃底图，再渲染内容
+            BuildMenuGlass(hwnd, d);
+            UpdateMenuDisplay(hwnd, d);
+            // 出场动画从全透明开始：先把合成 alpha 置 0，避免显示后的第一帧闪现
             PresentMenu(hwnd, d, 0, 0);
+            d->animStart = GetTickCount();
             SetTimer(hwnd, 1, 30, NULL);
             SetTimer(hwnd, 2, 16, NULL);
+            return 0;
+        }
+        case WM_UI_THEME_CHANGED: {
+            // 亮暗色切换：背景快照仍然有效，只需按新主题重建底图并重绘
+            if (!d) return 0;
+            BuildMenuGlass(hwnd, d);
+            UpdateMenuDisplay(hwnd, d);
             return 0;
         }
         case WM_TIMER: {
@@ -400,7 +422,7 @@ static LRESULT CALLBACK MenuProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (d && d->owner) {
                 SendMessage(d->owner, WM_COMMAND, MAKEWPARAM(9999, 0), 0);
             }
-            if (d) { KillTimer(hwnd, 1); KillTimer(hwnd, 2); DeleteObject(d->hbmBuffer); DeleteDC(d->hdcBuffer); DeleteObject(d->hFontLabel); DeleteObject(d->hFontIcon); free(d->alphaSnapshot); free(d->items); free(d); }
+            if (d) { KillTimer(hwnd, 1); KillTimer(hwnd, 2); DeleteObject(d->hbmBuffer); DeleteDC(d->hdcBuffer); DeleteObject(d->hFontLabel); DeleteObject(d->hFontIcon); free(d->alphaSnapshot); Backdrop_Release(&d->backdrop); GlassCache_Free(&d->glass); free(d->items); free(d); }
             g_currentMenuHwnd = NULL; return 0;
         }
     }

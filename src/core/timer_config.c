@@ -1,5 +1,6 @@
 #include "timer_config.h"
 #include "timer_core.h"
+#include "timer_theme.h"
 #include <stdio.h>
 #include <shlobj.h>
 
@@ -297,8 +298,11 @@ void SaveAppearanceConfig(void) {
     WritePrivateProfileStringW(L"Appearance", L"FontName", g_timerState.currentFontName, configPath);
     
     // 保存背景透明设置
-    WritePrivateProfileStringW(L"Appearance", L"TransparentBackground", 
+    WritePrivateProfileStringW(L"Appearance", L"TransparentBackground",
                               g_timerState.transparentBackground ? L"1" : L"0", configPath);
+
+    // 保存界面主题：1 = 暗色，0 = 亮色
+    WritePrivateProfileStringW(L"Appearance", L"Theme", Ui_IsDark() ? L"1" : L"0", configPath);
     
     // 保存超时正计时功能开关
     WritePrivateProfileStringW(L"Timer", L"EnableOvertimeCount", 
@@ -353,6 +357,9 @@ void LoadAppearanceConfig(void) {
         
         // 背景透明设置默认值
         g_timerState.transparentBackground = FALSE;  // 默认不透明背景
+
+        // 界面主题默认值：暗色
+        Ui_SetDark(TRUE);
         return;
     }
     
@@ -370,6 +377,10 @@ void LoadAppearanceConfig(void) {
     
     // 加载字体名称
     GetPrivateProfileStringW(L"Appearance", L"FontName", L"", g_timerState.currentFontName, 64, configPath);
+
+    // 加载界面主题（1 = 暗色，0 = 亮色，缺省为暗色）。
+    // 放在字色之后：主题的强调色要从计时器字色推导。
+    Ui_SetDark(GetPrivateProfileIntW(L"Appearance", L"Theme", 1, configPath) != 0);
     
     // 加载超时正计时功能开关
     DWORD enableOvertimeCount = GetPrivateProfileIntW(L"Timer", L"EnableOvertimeCount", 0, configPath);

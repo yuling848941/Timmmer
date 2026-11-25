@@ -224,7 +224,12 @@ LRESULT CALLBACK AboutDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM 
             SetTextColor(hdcStatic, UI_LIGHT_TEXT_PRIMARY);
             SetBkColor(hdcStatic, UI_LIGHT_BG_PRIMARY);
             static HBRUSH hDlgBgBrush = NULL;
-            if (!hDlgBgBrush) hDlgBgBrush = CreateSolidBrush(UI_LIGHT_BG_PRIMARY);
+            static COLORREF hDlgBgBrushColor = 0;
+            if (!hDlgBgBrush || hDlgBgBrushColor != UI_LIGHT_BG_PRIMARY) {
+                if (hDlgBgBrush) DeleteObject(hDlgBgBrush);
+                hDlgBgBrushColor = UI_LIGHT_BG_PRIMARY;
+                hDlgBgBrush = CreateSolidBrush(hDlgBgBrushColor);
+            }
             return (LRESULT)hDlgBgBrush;
         }
 
@@ -232,9 +237,18 @@ LRESULT CALLBACK AboutDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM 
             HDC hdcBtn = (HDC)wParam;
             SetBkColor(hdcBtn, UI_LIGHT_BG_PRIMARY);
             static HBRUSH hDlgBgBrush2 = NULL;
-            if (!hDlgBgBrush2) hDlgBgBrush2 = CreateSolidBrush(UI_LIGHT_BG_PRIMARY);
+            static COLORREF hDlgBgBrush2Color = 0;
+            if (!hDlgBgBrush2 || hDlgBgBrush2Color != UI_LIGHT_BG_PRIMARY) {
+                if (hDlgBgBrush2) DeleteObject(hDlgBgBrush2);
+                hDlgBgBrush2Color = UI_LIGHT_BG_PRIMARY;
+                hDlgBgBrush2 = CreateSolidBrush(hDlgBgBrush2Color);
+            }
             return (LRESULT)hDlgBgBrush2;
         }
+
+        case WM_UI_THEME_CHANGED:
+            InvalidateRect(hDlg, NULL, TRUE);
+            return 0;
 
         case WM_ERASEBKGND: {
             HDC hdc = (HDC)wParam;

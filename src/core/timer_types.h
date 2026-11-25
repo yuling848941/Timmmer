@@ -121,25 +121,75 @@ typedef enum {
 #define COLOR_RED RGB(255, 0, 0)
 
 // ===========================================
-// 现代 UI 颜色系统（用于对话框样式优化）
+// 统一主题（设计令牌）
+// 菜单、托盘面板、各设置面板和计时器主窗口共用同一套令牌，
+// 运行时按"暗色 / 亮色"取值，由 src/ui/timer_theme.c 管理。
+// 下面的 UI_LIGHT_* / UI_PRIMARY_* 宏保留原名，但取值改为运行时读取主题，
+// 这样原有对话框代码不必逐处改写就能跟随亮暗色。
 // ===========================================
 
-// 浅色主题颜色（对齐 Windows 11 Settings / Mica 规格）
-#define UI_LIGHT_BG_PRIMARY     RGB(243, 243, 243)    // 面板底色（Win11 Settings 背景）
-#define UI_LIGHT_BG_SECONDARY   RGB(249, 249, 249)    // 次级背景/控件底
-#define UI_LIGHT_SURFACE        RGB(255, 255, 255)    // 卡片/输入框底
-#define UI_LIGHT_BORDER         RGB(221, 221, 221)    // Hairline 边框
-#define UI_LIGHT_BORDER_FOCUS   RGB(0, 95, 184)       // 聚焦边框：Win11 主色
-#define UI_LIGHT_TEXT_PRIMARY   RGB(32, 32, 32)       // 主文本：接近 CaptionText
-#define UI_LIGHT_TEXT_SECONDARY RGB(102, 102, 102)    // 次要文本
-#define UI_LIGHT_TEXT_DISABLED  RGB(168, 168, 168)    // 禁用文本
-#define UI_LIGHT_BUTTON_HOVER   RGB(229, 229, 229)    // 按钮悬停
-#define UI_LIGHT_BUTTON_PRESSED RGB(204, 204, 204)    // 按钮按下
+typedef struct UiTheme {
+    BOOL isDark;
 
-// 品牌色（Windows 11 AccentBlue #005FB8）
-#define UI_PRIMARY_COLOR        RGB(0, 95, 184)       // 主色蓝
-#define UI_PRIMARY_HOVER        RGB(0, 78, 155)       // 主色深蓝
-#define UI_PRIMARY_PRESSED      RGB(0, 62, 124)       // 主色更深
+    // 语义色
+    COLORREF accent;          // 强调色：文字、图标、描边
+    COLORREF accentFill;      // 强调色：实心填充、辉光
+    COLORREF accentHover;     // 实心强调色的悬停态
+    COLORREF accentPressed;   // 实心强调色的按下态
+    COLORREF onAccent;        // 实心强调色上的文字
+    COLORREF text;            // 主文本
+    COLORREF text2;           // 次要文本
+    COLORREF dim;             // 禁用 / 弱提示
+    COLORREF danger;          // 危险操作
+
+    // 不透明等价色（原生控件与 GDI 直绘使用）
+    COLORREF bg;              // 面板底色
+    COLORREF bgSecondary;     // 控件底：次按钮、未选中标签、步进器
+    COLORREF surface;         // 输入框底
+    COLORREF border;          // 控件描边
+    COLORREF buttonHover;     // 次按钮悬停
+    COLORREF buttonPressed;   // 次按钮按下
+
+    // 玻璃面板（逐像素弹窗使用）
+    COLORREF glass;           // 玻璃底色
+    BYTE glassAlpha;          // 玻璃不透明度 0..255
+    COLORREF panelBorder;     // 面板描边
+    BYTE panelBorderAlpha;
+    BYTE shadowAlpha;         // 面板投影不透明度
+    BYTE topHighlightAlpha;   // 面板顶部内侧高光（白色）
+
+    // 叠加在玻璃上的半透明表面
+    COLORREF hover;     BYTE hoverAlpha;       // 悬停底
+    COLORREF ctrl;      BYTE ctrlAlpha;        // 控件底
+    COLORREF ctrlLine;  BYTE ctrlLineAlpha;    // 控件描边
+    COLORREF field;     BYTE fieldAlpha;       // 输入框底
+    COLORREF hair;      BYTE hairAlpha;        // 发丝线、未填充轨道
+    COLORREF knobOff;                          // 关闭状态的开关滑块
+
+    BYTE glow;                // 辉光强度 0..255
+} UiTheme;
+
+// 当前主题（首次调用前自动初始化为暗色）
+const UiTheme* Ui_GetTheme(void);
+
+// 主题切换后向本线程所有顶层窗口发送；收到后应按新主题重绘
+#define WM_UI_THEME_CHANGED (WM_USER + 0x200)
+
+// 兼容原名的运行时取值
+#define UI_LIGHT_BG_PRIMARY     (Ui_GetTheme()->bg)              // 面板底色
+#define UI_LIGHT_BG_SECONDARY   (Ui_GetTheme()->bgSecondary)     // 次级背景/控件底
+#define UI_LIGHT_SURFACE        (Ui_GetTheme()->surface)         // 卡片/输入框底
+#define UI_LIGHT_BORDER         (Ui_GetTheme()->border)          // Hairline 边框
+#define UI_LIGHT_BORDER_FOCUS   (Ui_GetTheme()->accent)          // 聚焦边框：强调色
+#define UI_LIGHT_TEXT_PRIMARY   (Ui_GetTheme()->text)            // 主文本
+#define UI_LIGHT_TEXT_SECONDARY (Ui_GetTheme()->text2)           // 次要文本
+#define UI_LIGHT_TEXT_DISABLED  (Ui_GetTheme()->dim)             // 禁用文本
+#define UI_LIGHT_BUTTON_HOVER   (Ui_GetTheme()->buttonHover)     // 次按钮悬停
+#define UI_LIGHT_BUTTON_PRESSED (Ui_GetTheme()->buttonPressed)   // 次按钮按下
+
+#define UI_PRIMARY_COLOR        (Ui_GetTheme()->accentFill)       // 主色：实心强调色
+#define UI_PRIMARY_HOVER        (Ui_GetTheme()->accentHover)      // 主色悬停
+#define UI_PRIMARY_PRESSED      (Ui_GetTheme()->accentPressed)    // 主色按下
 
 // Fluent 2 设计规范
 #define FLUENT_MENU_RADIUS_OUTER    8                     // 外圆角：8px

@@ -91,7 +91,7 @@ HWND CreateTimerWindow(HINSTANCE hInstance, int nCmdShow) {
 
     // 设置窗口装饰效果（圆角和阴影）- 仅在非透明背景模式下应用
     if (!g_timerState.transparentBackground) {
-        SetWindowRoundedCorners(hwnd, 6);
+        SetWindowRoundedCorners(hwnd, 12);
         SetWindowShadow(hwnd, TRUE);
     }
 
@@ -161,6 +161,25 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             DeleteObject(hBrush);
 
             UpdateDisplay(hdcMem);
+
+            // 普通模式：沿窗口边缘画一圈细描边，圆角与菜单/面板一致（12px）。
+            // 只作用于普通模式分支；背景隐藏模式走上面的分层渲染，完全不经过这里。
+            {
+                int w = g_timerState.windowWidth, h = g_timerState.windowHeight;
+                COLORREF bc = UI_LIGHT_BORDER;
+                COLORREF bg = g_timerState.backgroundColor;
+                // 描边色向背景色靠拢，避免在任意背景上都过于突兀
+                COLORREF line = RGB((GetRValue(bc) + GetRValue(bg)) / 2,
+                                    (GetGValue(bc) + GetGValue(bg)) / 2,
+                                    (GetBValue(bc) + GetBValue(bg)) / 2);
+                HPEN pen = CreatePen(PS_SOLID, 1, line);
+                HGDIOBJ oldPen = SelectObject(hdcMem, pen);
+                HGDIOBJ oldBrush = SelectObject(hdcMem, GetStockObject(NULL_BRUSH));
+                RoundRect(hdcMem, 0, 0, w, h, 24, 24);
+                SelectObject(hdcMem, oldBrush);
+                SelectObject(hdcMem, oldPen);
+                DeleteObject(pen);
+            }
 
             // 从持久化位图复制到屏幕
             BitBlt(hdc, 0, 0, g_timerState.windowWidth, g_timerState.windowHeight,
@@ -379,7 +398,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                     SetWindowRoundedCorners(hwnd, 0);
                     SetWindowShadow(hwnd, FALSE);
                 } else {
-                    SetWindowRoundedCorners(hwnd, 6);
+                    SetWindowRoundedCorners(hwnd, 12);
                     SetWindowShadow(hwnd, TRUE);
                 }
 
@@ -602,7 +621,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             if (!g_timerState.isResizing) {
                 // 根据透明背景模式决定是否应用装饰效果
                 if (!g_timerState.transparentBackground) {
-                    SetWindowRoundedCorners(hwnd, 6);
+                    SetWindowRoundedCorners(hwnd, 12);
                     SetWindowShadow(hwnd, TRUE);
                 } else {
                     SetWindowRoundedCorners(hwnd, 0);

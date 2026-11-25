@@ -256,7 +256,12 @@ LRESULT CALLBACK FormatDialogProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lP
         // 设置静态文本控件背景色（使用缓存刷子，避免每次调用创建导致 GDI 泄漏）
         case WM_CTLCOLORSTATIC: {
             static HBRUSH hBrush = NULL;
-            if (!hBrush) hBrush = CreateSolidBrush(UI_LIGHT_BG_PRIMARY);
+            static COLORREF hBrushColor = 0;
+            if (!hBrush || hBrushColor != UI_LIGHT_BG_PRIMARY) {
+                if (hBrush) DeleteObject(hBrush);
+                hBrushColor = UI_LIGHT_BG_PRIMARY;
+                hBrush = CreateSolidBrush(hBrushColor);
+            }
             HDC hdcStatic = (HDC)wParam;
             SetTextColor(hdcStatic, UI_LIGHT_TEXT_PRIMARY);
             SetBkColor(hdcStatic, UI_LIGHT_BG_PRIMARY);
@@ -266,11 +271,20 @@ LRESULT CALLBACK FormatDialogProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lP
         // 设置按钮控件背景色（使用缓存刷子，避免 GDI 泄漏）
         case WM_CTLCOLORBTN: {
             static HBRUSH hBrush = NULL;
-            if (!hBrush) hBrush = CreateSolidBrush(UI_LIGHT_BG_PRIMARY);
+            static COLORREF hBrushColor = 0;
+            if (!hBrush || hBrushColor != UI_LIGHT_BG_PRIMARY) {
+                if (hBrush) DeleteObject(hBrush);
+                hBrushColor = UI_LIGHT_BG_PRIMARY;
+                hBrush = CreateSolidBrush(hBrushColor);
+            }
             HDC hdcBtn = (HDC)wParam;
             SetBkColor(hdcBtn, UI_LIGHT_BG_PRIMARY);
             return (LRESULT)hBrush;
         }
+
+        case WM_UI_THEME_CHANGED:
+            InvalidateRect(hwnd, NULL, TRUE);
+            return 0;
 
         // 绘制对话框背景
         case WM_ERASEBKGND: {

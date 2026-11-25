@@ -3,6 +3,7 @@
 
 #include <windows.h>
 #include <math.h>
+#include "timer_types.h"     // UiTheme
 
 #ifdef __cplusplus
 extern "C" {
@@ -80,6 +81,64 @@ int MeasureTextWidth(HDC hdc, HFONT font, const wchar_t* text);
 // 绘制后用 RestoreAlpha 补回。
 void SnapshotAlpha(const BYTE* pixels, BYTE* outAlpha, size_t pixelCount);
 void RestoreAlpha(BYTE* pixels, const BYTE* alpha, size_t pixelCount);
+
+// ===========================================
+// 背景快照与玻璃面板
+// 系统级的背景模糊（Win11 Acrylic/Mica）不会出现在逐像素透明的分层窗口后面，
+// 所以用"快照式"替代：窗口显示前把背后的屏幕拍下来，模糊后作为面板底。
+// ===========================================
+
+// 屏幕上一块区域的像素快照（BGRA，自顶向下，坐标与调用方同一坐标系）
+typedef struct {
+    int x, y, w, h;         // 区域在屏幕上的位置与大小
+    BYTE* pixels;           // NULL 表示没有可用快照
+} Backdrop;
+
+// 捕获屏幕区域。必须在目标窗口尚未显示（或不可见）时调用，否则会把窗口自己拍进去。
+// 失败时 bd->pixels 为 NULL，之后的绘制自动退化为不透明底色。
+BOOL Backdrop_Capture(Backdrop* bd, int x, int y, int w, int h);
+void Backdrop_Release(Backdrop* bd);
+
+// 预渲染的玻璃面板底图（预乘 ARGB：投影 + 玻璃底 + 描边 + 顶部高光）。
+// 弹窗不动时底图不变，之后每次重绘只需整体拷贝，不必重新模糊。
+typedef struct {
+    int w, h;
+    BYTE* pixels;
+} GlassCache;
+
+void GlassCache_Free(GlassCache* gc);
+
+// 生成底图：缓冲大小 bufW x bufH，面板位于缓冲内 (px,py,pw,ph)。
+// screenX/screenY 是缓冲左上角在屏幕上的位置，用来与背景快照 bd 对齐；bd 为 NULL 时退化为不透明底色。
+BOOL GlassCache_Build(GlassCache* gc, int bufW, int bufH, int px, int py, int pw, int ph, int radius,
+                      int shadowSize, int blurRadius, const Backdrop* bd, int screenX, int screenY,
+                      const UiTheme* theme);
+
+// 把底图整体拷贝到同尺寸的目标缓冲
+void GlassCache_Blit(const GlassCache* gc, BYTE* dst, int bufW, int bufH);
+
+// ===========================================
+// 辉光
+// ===========================================
+
+// 圆角矩形外侧的辉光。strength 为 0..1，spread 为扩散距离（像素）。
+void GlowRoundedRect(BYTE* pixels, int bufW, int bufH, int rx, int ry, int x, int y, int w, int h,
+                     BYTE r, BYTE g, BYTE b, float strength, int spread);
+
+// 文字辉光：只叠加光晕，不绘制文字本身（文字由调用方随后用 DrawTextClearType 绘制）。
+// additive 为 TRUE 时加色发光（暗色主题），FALSE 时按光晕强度把底色拉向 color（亮色主题）。
+void DrawTextGlow(BYTE* pixels, int bufW, int bufH, HDC hdc, HFONT font, const wchar_t* text, RECT rc, UINT flags,
+                  COLORREF color, float strength, int radius, BOOL additive);
+
+// ===========================================
+// 其它
+// ===========================================
+
+// 主题化开关（胶囊形，开启时带辉光）；rowHeight 为所在行高，用于垂直居中
+void DrawSwitchThemed(BYTE* pixels, int bufW, int bufH, int x, int y, int rowHeight, BOOL isOn, UINT dpi, const UiTheme* theme);
+
+// 指定颜色的水平线（thickness 可随 DPI 缩放）
+void DrawHLine(BYTE* pixels, int bufW, int x0, int x1, int y, BYTE r, BYTE g, BYTE b, BYTE a, int thickness);
 
 #ifdef __cplusplus
 }

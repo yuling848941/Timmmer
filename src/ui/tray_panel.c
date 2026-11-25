@@ -4,44 +4,46 @@
  * 架构与 ios_menu.c 一致：分层窗口 + UpdateLayeredWindow + DIB 像素级抗锯齿渲染。
  * 面板只负责展示与命令转发，业务逻辑全部通过 WM_COMMAND 发给主窗口处理，
  * 因此不依赖任何新的核心逻辑（预设 chips = 现有 ID_PRESET_BASE 命令 + 紧跟开始）。
+ *
+ * 视觉：与右键菜单同一套主题令牌（timer_theme.c）——玻璃底、辉光、强调色。
+ * 头部的大号时间使用计时器当前选中的字体，使面板与计时器主体天然协调。
  */
 
 #include "tray_panel.h"
 #include "timer_core.h"
 #include "timer_config.h"
 #include "timer_render_utils.h"
+#include "timer_theme.h"
+#include "timer_fonts.h"
 #include <stdio.h>
 #include <uxtheme.h>
 
 // ===========================================
-// 布局常量（Win11 快速设置 flyout 风格）
+// 布局常量
+// 以下均为 96 DPI 基准值，运行时经 PX() 按面板所在显示器 DPI 缩放
 // ===========================================
 
-// 以下均为 96 DPI 基准值，运行时经 PX() 按面板所在显示器 DPI 缩放
 static UINT g_panelDpi = 96;
 #define PX(v) ScalePx((v), g_panelDpi)
 
-#define PANEL_WIDTH          PX(320)
-#define PANEL_SHADOW         PX(20)
-#define PANEL_SHADOW_OFFSET  PX(4)
-#define PANEL_RADIUS         PX(8)
-#define PANEL_PAD_X          PX(16)
+#define PANEL_WIDTH          PX(360)
+#define PANEL_SHADOW         PX(24)
+#define PANEL_RADIUS         PX(12)
+#define PANEL_PAD_X          PX(18)
 #define PANEL_PAD_TOP        PX(16)
-#define PANEL_PAD_BOTTOM     PX(12)
+#define PANEL_PAD_BOTTOM     PX(18)
 
-#define HEADER_H             PX(44)   // 大号时间 + 状态行
-#define BTN_H                PX(36)   // 主按钮高度
+#define HEADER_H             PX(52)   // 大号时间 + 状态行
+#define BTN_H                PX(40)   // 主按钮高度
 #define BTN_GAP              PX(8)
-#define CHIP_H               PX(32)   // 预设 chip 高度
+#define CHIP_H               PX(36)   // 预设 chip 高度
 #define CHIP_GAP             PX(8)
 #define CHIP_COLS             4
-#define ROW_H                PX(36)   // 开关/功能行高度
-#define SECTION_H            PX(20)   // 小节标题高度
+#define ROW_H                PX(40)   // 开关/功能行高度
+#define SECTION_H            PX(21)   // 小节标题高度
 
-#define SWITCH_WIDTH         PX(34)
-
+#define SWITCH_WIDTH         PX(38)
 #define HAIRLINE             (max(1, PX(1)))
-#define PANEL_BG_A           255     // 不透明：半透明且无模糊时，背景里的深色内容会透出来形成"脏影"
 
 // ===========================================
 // 数据结构
@@ -62,6 +64,7 @@ typedef struct {
     PanelRegionKind kind;
     BOOL closeAfter;          // 执行后是否关闭面板
     BOOL selected;            // 是否处于选中态（当前时间对应的预设）
+    wchar_t label[32];        // chip 显示文字（在形状段按预设序号算好，文字段直接取用）
 } PanelRegion;
 
 #define PANEL_MAX_REGIONS 20   // 2 按钮 + 11 chips + 2 行
@@ -74,12 +77,17 @@ typedef struct {
     int bufWidth;
     int bufHeight;
     int contentHeight;
-    HFONT hFontBig;           // 大号时间
+    BYTE* alphaSnapshot;      // GDI 绘制文字前的 alpha 通道快照
+    Backdrop backdrop;        // 面板弹出时背后的屏幕快照（用于玻璃底）
+    GlassCache glass;         // 预渲染的玻璃底图：投影 + 玻璃 + 描边
+    POINT finalPos;           // 窗口左上角的屏幕位置
+    HFONT hFontBig;           // 大号时间（计时器当前字体）
     HFONT hFontStatus;        // 状态文字
-    HFONT hFontLabel;         // 按钮文字
+    HFONT hFontLabel;         // 行文字
+    HFONT hFontBtn;           // 按钮文字
     HFONT hFontSection;       // 小节标题
     HFONT hFontChip;          // chip 文字
-    HFONT hFontIcon;          // MDL2 图标
+    HFONT hFontIcon;          // 图标
     PanelRegion regions[PANEL_MAX_REGIONS];
     int regionCount;
     int hoverIndex;
@@ -97,13 +105,18 @@ static BOOL g_panelClassRegistered = FALSE;
 static HWND g_panelHwnd = NULL;
 
 // ===========================================
-// 文字绘制
-// 面板主体不透明，直接用 GDI 绘制以保留 ClearType；
-// GDI 会把写过的像素 alpha 置 0，RenderPanel 在绘制前后用 SnapshotAlpha / RestoreAlpha 还原
+// 字体与文字
 // ===========================================
 
-static void DrawTextAA(HDC hdc, HFONT font, const wchar_t* text, RECT rc, COLORREF color, UINT flags) {
-    DrawTextClearType(hdc, font, text, rc, color, flags);
+// 头部时间用的字体：计时器当前选中的字体（通常是内置的数字字体）。
+// 该字体不可用时退回 UI 字体的半粗体，而不是让系统静默换成别的字体。
+static HFONT CreateDisplayFont(int emPx) {
+    const wchar_t* name = g_timerState.currentFontName;
+    if (name && name[0] && IsFontInstalled(name)) {
+        return CreateFontW(-emPx, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, OUT_TT_PRECIS, 0,
+                           CLEARTYPE_QUALITY, 0, name);
+    }
+    return CreateUiFont(emPx, FW_SEMIBOLD, TRUE);
 }
 
 // FormatTimeCustom 输出为窄字符（ASCII），转宽字符用于 GDI 绘制
@@ -117,6 +130,30 @@ static void CurrentTimeToWide(wchar_t* out, size_t cap) {
     out[i] = L'\0';
 }
 
+// 面板内部已不透明，直接用 GDI 绘制以保留 ClearType
+static void DrawPanelText(HDC hdc, HFONT font, const wchar_t* text, RECT rc, COLORREF color, UINT flags) {
+    DrawTextClearType(hdc, font, text, rc, color, flags);
+}
+
+// ===========================================
+// 玻璃底图
+// ===========================================
+
+// 面板显示前捕获它背后的屏幕并生成玻璃底图；之后的重绘只拷贝底图。
+// 窗口此刻尚未显示，不会把自己拍进快照。
+static void BuildPanelGlass(HWND hwnd, PanelData* d) {
+    RECT wr;
+    GetWindowRect(hwnd, &wr);
+    d->finalPos.x = wr.left;
+    d->finalPos.y = wr.top;
+    Backdrop_Release(&d->backdrop);
+    Backdrop_Capture(&d->backdrop, wr.left, wr.top, d->bufWidth, d->bufHeight);
+    GlassCache_Build(&d->glass, d->bufWidth, d->bufHeight,
+                     PANEL_SHADOW, PANEL_SHADOW, PANEL_WIDTH, d->contentHeight,
+                     PANEL_RADIUS, PANEL_SHADOW, PX(9),
+                     &d->backdrop, wr.left, wr.top, Ui_GetTheme());
+}
+
 // ===========================================
 // 渲染
 // ===========================================
@@ -128,59 +165,55 @@ static PanelRegion* AddRegion(PanelData* d) {
     return r;
 }
 
-static void DrawDivider(PanelData* d, int y) {
-    DrawHairlineH((BYTE*)d->pBits, d->bufWidth,
-                  PANEL_SHADOW + PANEL_PAD_X - PX(4), PANEL_SHADOW + PANEL_WIDTH - PANEL_PAD_X + PX(4),
-                  y, 0.09f, HAIRLINE);
-}
-
 static void RenderPanel(PanelData* d) {
     BYTE* pixels = (BYTE*)d->pBits;
     int w = d->bufWidth;
     int mx = PANEL_SHADOW;
     int my = PANEL_SHADOW;
+    const UiTheme* theme = Ui_GetTheme();
     const MenuTexts* texts = GetMenuTexts();
+    size_t pixelCount = (size_t)w * d->bufHeight;
+    float glow = theme->glow / 255.0f;
 
-    memset(pixels, 0, (size_t)w * d->bufHeight * 4);
-    d->regionCount = 0;
+// 取颜色的 R/G/B 分量
+#define CR(c) GetRValue(c)
+#define CG(c) GetGValue(c)
+#define CB(c) GetBValue(c)
 
-    // 软阴影 + 描边 + 不透明背景（与右键菜单一致）
-    DrawSoftShadowSDF(pixels, w, d->bufHeight, mx, my, PANEL_WIDTH, d->contentHeight,
-                      PANEL_RADIUS, PANEL_SHADOW, PANEL_SHADOW_OFFSET, 0.18f);
-    FillRoundedRectAA(pixels, w, d->bufHeight, PANEL_RADIUS, PANEL_RADIUS,
-                      mx - HAIRLINE, my - HAIRLINE, PANEL_WIDTH + 2 * HAIRLINE, d->contentHeight + 2 * HAIRLINE, 0, 0, 0, 26);
-    FillRoundedRectAA(pixels, w, d->bufHeight, PANEL_RADIUS, PANEL_RADIUS,
-                      mx, my, PANEL_WIDTH, d->contentHeight, 252, 252, 252, PANEL_BG_A);
-
-    BYTE* alphaSnapshot = (BYTE*)malloc((size_t)w * d->bufHeight);
-    SnapshotAlpha(pixels, alphaSnapshot, (size_t)w * d->bufHeight);
+    // 底图：投影 + 玻璃底 + 描边（预先算好，这里只拷贝）
+    memset(pixels, 0, pixelCount * 4);
+    GlassCache_Blit(&d->glass, pixels, w, d->bufHeight);
 
     int contentW = PANEL_WIDTH - PANEL_PAD_X * 2;
+    int hair = HAIRLINE;
 
     // === 头部：大号时间 + 状态 ===
     int y = my + PANEL_PAD_TOP;
     wchar_t timeStr[40];
     CurrentTimeToWide(timeStr, 40);
-    // 状态文字（含圆点）固定占右侧 PX(96)，其余宽度留给时间：开到毫秒（00:00:00.000）也不会被裁掉
+    // 状态文字（含圆点）固定占右侧 PX(110)，其余宽度留给时间：开到毫秒（00:00:00.000）也不会被裁掉
     int statusRight = mx + PANEL_WIDTH - PANEL_PAD_X - PX(22);
-    RECT rcTime = { mx + PANEL_PAD_X, y, statusRight - PX(96), y + HEADER_H };
-    DrawTextAA(d->hdcBuffer, d->hFontBig, timeStr, rcTime, RGB(32, 32, 32), DT_LEFT);
+    RECT rcTime = { mx + PANEL_PAD_X, y, statusRight - PX(110), y + HEADER_H };
 
     const wchar_t* statusText;
-    BYTE dr, dg, db;
+    COLORREF statusColor;
     if (g_timerState.isTimeUp) {
-        statusText = texts->panelTimeUp;  dr = 196; dg = 43;  db = 28;
+        statusText = texts->panelTimeUp;  statusColor = theme->danger;
     } else if (g_timerState.isRunning) {
-        statusText = texts->panelRunning; dr = 0;   dg = 95;  db = 184;
+        statusText = texts->panelRunning; statusColor = theme->accent;
     } else {
-        statusText = texts->panelPaused;  dr = 150; dg = 150; db = 150;
+        statusText = texts->panelPaused;  statusColor = theme->dim;
     }
-    int dot = PX(8);
+    int dot = PX(6);
     int dotCy = y + HEADER_H / 2;
-    FillRoundedRectAA(pixels, w, d->bufHeight, dot / 2, dot / 2,
-                      statusRight - dot, dotCy - dot / 2, dot, dot, dr, dg, db, 255);
-    RECT rcStatus = { mx + PANEL_PAD_X, y, statusRight - dot - PX(8), y + HEADER_H };
-    DrawTextAA(d->hdcBuffer, d->hFontStatus, statusText, rcStatus, RGB(102, 102, 102), DT_RIGHT);
+    GlowRoundedRect(pixels, w, d->bufHeight, dot, dot, statusRight - dot, dotCy - dot / 2, dot * 2, dot * 2,
+                    CR(statusColor), CG(statusColor), CB(statusColor), g_timerState.isRunning ? 0.7f * glow : 0.0f, PX(14));
+    FillRoundedRectAA(pixels, w, d->bufHeight, dot / 2, dot / 2, statusRight - dot, dotCy - dot / 2, dot, dot,
+                      CR(statusColor), CG(statusColor), CB(statusColor), 255);
+
+    // 时间的辉光贴合字形：把文字画到临时缓冲做两级模糊再叠加
+    DrawTextGlow(pixels, w, d->bufHeight, d->hdcBuffer, d->hFontBig, timeStr, rcTime, DT_LEFT | DT_END_ELLIPSIS,
+                 theme->accentFill, glow * 0.8f, PX(10), !theme->isDark);
     y += HEADER_H + PX(12);
 
     // === 按钮行：开始/暂停 + 重置 ===
@@ -192,11 +225,11 @@ static void RenderPanel(PanelData* d) {
         r->cmd = ID_START_PAUSE;
         r->rc.left = mx + PANEL_PAD_X; r->rc.top = y;
         r->rc.right = r->rc.left + btnW; r->rc.bottom = y + BTN_H;
+        COLORREF fill = hovered ? theme->accentHover : theme->accentFill;
+        GlowRoundedRect(pixels, w, d->bufHeight, PX(6), PX(6), r->rc.left, r->rc.top, btnW, BTN_H,
+                        CR(fill), CG(fill), CB(fill), glow * 0.55f, PX(18));
         FillRoundedRectAA(pixels, w, d->bufHeight, PX(6), PX(6), r->rc.left, r->rc.top, btnW, BTN_H,
-                          0, hovered ? 78 : 95, hovered ? 155 : 184, 255);
-        DrawTextAA(d->hdcBuffer, d->hFontLabel,
-                   g_timerState.isRunning ? texts->pause : texts->start,
-                   r->rc, RGB(255, 255, 255), DT_CENTER);
+                          CR(fill), CG(fill), CB(fill), 255);
     }
     {
         PanelRegion* r = AddRegion(d);
@@ -206,19 +239,18 @@ static void RenderPanel(PanelData* d) {
         r->rc.left = mx + PANEL_PAD_X + btnW + BTN_GAP; r->rc.top = y;
         r->rc.right = r->rc.left + btnW; r->rc.bottom = y + BTN_H;
         FillRoundedRectAA(pixels, w, d->bufHeight, PX(6), PX(6), r->rc.left, r->rc.top, btnW, BTN_H,
-                          hovered ? 236 : 255, hovered ? 236 : 255, hovered ? 236 : 255, 255);
+                          CR(theme->ctrl), CG(theme->ctrl), CB(theme->ctrl),
+                          (BYTE)(hovered ? min(255, theme->ctrlAlpha + 40) : theme->ctrlAlpha));
         DrawRoundedRectOutlineAA(pixels, w, d->bufHeight, PX(6), PX(6), r->rc.left, r->rc.top, btnW, BTN_H,
-                                 HAIRLINE, 0, 0, 0, 64);
-        DrawTextAA(d->hdcBuffer, d->hFontLabel, texts->reset, r->rc, RGB(32, 32, 32), DT_CENTER);
+                                 hair, CR(theme->ctrlLine), CG(theme->ctrlLine), CB(theme->ctrlLine), theme->ctrlLineAlpha);
     }
     y += BTN_H + PX(12);
-    DrawDivider(d, y);
+    DrawHLine(pixels, w, mx + PANEL_PAD_X, mx + PANEL_WIDTH - PANEL_PAD_X, y,
+              CR(theme->hair), CG(theme->hair), CB(theme->hair), theme->hairAlpha, hair);
     y += PX(13);
 
     // === 快速开始：预设 chips ===
     RECT rcSection = { mx + PANEL_PAD_X, y, mx + PANEL_WIDTH - PANEL_PAD_X, y + SECTION_H };
-    DrawTextAA(d->hdcBuffer, d->hFontSection, texts->panelQuickStart, rcSection,
-               RGB(102, 102, 102), DT_LEFT);
     y += SECTION_H + PX(8);
 
     int chipCount = g_timerState.presetCount + 1;  // 末尾固定为"自定义"
@@ -247,27 +279,26 @@ static void RenderPanel(PanelData* d) {
             r->cmd = ID_SET_TIME;
             r->closeAfter = TRUE;     // 打开自定义时间对话框前收起面板
         }
+        wcscpy_s(r->label, 32, label);   // 标签在此按预设序号算好，文字段直接取用
 
         if (r->selected) {
-            FillRoundedRectAA(pixels, w, d->bufHeight, PX(6), PX(6), cx, cy, chipW, CHIP_H, 0, 95, 184, 255);
-            DrawTextAA(d->hdcBuffer, d->hFontChip, label, r->rc, RGB(255, 255, 255),
-                       DT_CENTER | DT_END_ELLIPSIS);
+            GlowRoundedRect(pixels, w, d->bufHeight, PX(6), PX(6), cx, cy, chipW, CHIP_H,
+                            CR(theme->accentFill), CG(theme->accentFill), CB(theme->accentFill), glow * 0.45f, PX(16));
+            FillRoundedRectAA(pixels, w, d->bufHeight, PX(6), PX(6), cx, cy, chipW, CHIP_H,
+                              CR(theme->accentFill), CG(theme->accentFill), CB(theme->accentFill), 255);
         } else {
             FillRoundedRectAA(pixels, w, d->bufHeight, PX(6), PX(6), cx, cy, chipW, CHIP_H,
-                              255, 255, 255, 255);
+                              CR(theme->ctrl), CG(theme->ctrl), CB(theme->ctrl),
+                              (BYTE)(hovered ? min(255, theme->ctrlAlpha + 40) : theme->ctrlAlpha));
             DrawRoundedRectOutlineAA(pixels, w, d->bufHeight, PX(6), PX(6), cx, cy, chipW, CHIP_H,
-                                     HAIRLINE, 0, 0, 0, hovered ? 120 : 60);
-            if (hovered) {
-                FillRoundedRectAA(pixels, w, d->bufHeight, PX(6), PX(6), cx, cy, chipW, CHIP_H,
-                                  0, 0, 0, 10);
-            }
-            DrawTextAA(d->hdcBuffer, d->hFontChip, label, r->rc, RGB(32, 32, 32),
-                       DT_CENTER | DT_END_ELLIPSIS);
+                                     hair, CR(theme->ctrlLine), CG(theme->ctrlLine), CB(theme->ctrlLine),
+                                     (BYTE)(hovered ? min(255, theme->ctrlLineAlpha + 50) : theme->ctrlLineAlpha));
         }
     }
     int chipRows = (chipCount + CHIP_COLS - 1) / CHIP_COLS;
     y += chipRows * CHIP_H + (chipRows - 1) * CHIP_GAP + PX(12);
-    DrawDivider(d, y);
+    DrawHLine(pixels, w, mx + PANEL_PAD_X, mx + PANEL_WIDTH - PANEL_PAD_X, y,
+              CR(theme->hair), CG(theme->hair), CB(theme->hair), theme->hairAlpha, hair);
     y += PX(13);
 
     // === 功能行：超时正计时开关 ===
@@ -277,20 +308,16 @@ static void RenderPanel(PanelData* d) {
         BOOL hovered = r && (d->hoverIndex == idx);
         r->kind = REGION_ROW_SWITCH;
         r->cmd = ID_OVERTIME_COUNT;  // 点击后不关闭，实时反映开关状态
-        r->rc.left = mx + PANEL_PAD_X - PX(8); r->rc.top = y;
-        r->rc.right = mx + PANEL_WIDTH - PANEL_PAD_X + PX(8); r->rc.bottom = y + ROW_H;
+        r->rc.left = mx + PANEL_PAD_X - PX(10); r->rc.top = y;
+        r->rc.right = mx + PANEL_WIDTH - PANEL_PAD_X + PX(10); r->rc.bottom = y + ROW_H;
         if (hovered) {
-            FillRoundedRectAA(pixels, w, d->bufHeight, PX(6), PX(6), mx + PX(6), y + PX(2),
-                              PANEL_WIDTH - PX(12), ROW_H - PX(4), 0, 0, 0, 18);
+            FillRoundedRectAA(pixels, w, d->bufHeight, PX(6), PX(6), mx + PX(6), y,
+                              PANEL_WIDTH - PX(12), ROW_H,
+                              CR(theme->hover), CG(theme->hover), CB(theme->hover), theme->hoverAlpha);
         }
-        RECT rcIcon = { mx + PX(12), y, mx + PX(44), y + ROW_H };
-        DrawTextAA(d->hdcBuffer, d->hFontIcon, L"\uE916", rcIcon, RGB(104, 104, 104), DT_CENTER);
-        RECT rcLabel = { mx + PX(44), y, mx + PANEL_WIDTH - PANEL_PAD_X - SWITCH_WIDTH - PX(12), y + ROW_H };
-        DrawTextAA(d->hdcBuffer, d->hFontLabel, texts->overtimeCount, rcLabel,
-                   RGB(32, 32, 32), DT_LEFT);
-        DrawSwitchWin11Scaled(pixels, w, d->bufHeight,
-                              mx + PANEL_WIDTH - PANEL_PAD_X - SWITCH_WIDTH, y, ROW_H,
-                              g_timerState.enableOvertimeCount, g_panelDpi);
+        DrawSwitchThemed(pixels, w, d->bufHeight,
+                         mx + PANEL_WIDTH - PANEL_PAD_X - SWITCH_WIDTH, y, ROW_H,
+                         g_timerState.enableOvertimeCount, g_panelDpi, theme);
     }
     y += ROW_H;
 
@@ -302,21 +329,64 @@ static void RenderPanel(PanelData* d) {
         r->kind = REGION_ROW_PLAIN;
         r->cmd = ID_TRAY_SHOW;
         r->closeAfter = TRUE;
-        r->rc.left = mx + PANEL_PAD_X - PX(8); r->rc.top = y;
-        r->rc.right = mx + PANEL_WIDTH - PANEL_PAD_X + PX(8); r->rc.bottom = y + ROW_H;
+        r->rc.left = mx + PANEL_PAD_X - PX(10); r->rc.top = y;
+        r->rc.right = mx + PANEL_WIDTH - PANEL_PAD_X + PX(10); r->rc.bottom = y + ROW_H;
         if (hovered) {
-            FillRoundedRectAA(pixels, w, d->bufHeight, PX(6), PX(6), mx + PX(6), y + PX(2),
-                              PANEL_WIDTH - PX(12), ROW_H - PX(4), 0, 0, 0, 18);
+            FillRoundedRectAA(pixels, w, d->bufHeight, PX(6), PX(6), mx + PX(6), y,
+                              PANEL_WIDTH - PX(12), ROW_H,
+                              CR(theme->hover), CG(theme->hover), CB(theme->hover), theme->hoverAlpha);
+            FillRoundedRectAA(pixels, w, d->bufHeight, 1, 1, mx + PX(6), y + PX(11), PX(2), ROW_H - PX(22),
+                              CR(theme->accent), CG(theme->accent), CB(theme->accent), 255);
         }
-        RECT rcIcon = { mx + PX(12), y, mx + PX(44), y + ROW_H };
-        DrawTextAA(d->hdcBuffer, d->hFontIcon, L"\uE8A7", rcIcon, RGB(104, 104, 104), DT_CENTER);
-        RECT rcLabel = { mx + PX(44), y, mx + PANEL_WIDTH - PANEL_PAD_X, y + ROW_H };
-        DrawTextAA(d->hdcBuffer, d->hFontLabel, texts->panelShowWindow, rcLabel,
-                   RGB(32, 32, 32), DT_LEFT);
     }
 
-    RestoreAlpha(pixels, alphaSnapshot, (size_t)w * d->bufHeight);
-    free(alphaSnapshot);
+    // === 文字（形状全部画完后再统一绘制）===
+    // GDI 会把写过的像素 alpha 置 0，绘制前后用快照把 alpha 还原
+    SnapshotAlpha(pixels, d->alphaSnapshot, pixelCount);
+    HDC hdc = d->hdcBuffer;
+
+    DrawPanelText(hdc, d->hFontBig, timeStr, rcTime, theme->accent, DT_LEFT | DT_END_ELLIPSIS);
+    RECT rcStatus = { mx + PANEL_PAD_X, my + PANEL_PAD_TOP, statusRight - dot * 2 - PX(8), my + PANEL_PAD_TOP + HEADER_H };
+    DrawPanelText(hdc, d->hFontStatus, statusText, rcStatus, theme->text2, DT_RIGHT);
+
+    for (int i = 0; i < d->regionCount; i++) {
+        PanelRegion* r = &d->regions[i];
+        BOOL hovered = (d->hoverIndex == i);
+        switch (r->kind) {
+            case REGION_BTN_PRIMARY:
+                DrawPanelText(hdc, d->hFontBtn, g_timerState.isRunning ? texts->pause : texts->start, r->rc, theme->onAccent, DT_CENTER);
+                break;
+            case REGION_BTN_SECONDARY:
+                DrawPanelText(hdc, d->hFontBtn, texts->reset, r->rc, theme->text, DT_CENTER);
+                break;
+            case REGION_CHIP: {
+                DrawPanelText(hdc, d->hFontChip, r->label, r->rc, r->selected ? theme->onAccent : theme->text,
+                               DT_CENTER | DT_END_ELLIPSIS);
+                break;
+            }
+            case REGION_ROW_SWITCH: {
+                RECT rcIcon = { mx + PX(12), r->rc.top, mx + PX(44), r->rc.bottom };
+                RECT rcLabel = { mx + PX(46), r->rc.top, mx + PANEL_WIDTH - PANEL_PAD_X - SWITCH_WIDTH - PX(12), r->rc.bottom };
+                DrawPanelText(hdc, d->hFontIcon, L"\uE916", rcIcon, hovered ? theme->accent : theme->text2, DT_CENTER);
+                DrawPanelText(hdc, d->hFontLabel, texts->overtimeCount, rcLabel, theme->text, DT_LEFT);
+                break;
+            }
+            case REGION_ROW_PLAIN: {
+                RECT rcIcon = { mx + PX(12), r->rc.top, mx + PX(44), r->rc.bottom };
+                RECT rcLabel = { mx + PX(46), r->rc.top, mx + PANEL_WIDTH - PANEL_PAD_X, r->rc.bottom };
+                DrawPanelText(hdc, d->hFontIcon, L"\uE8A7", rcIcon, hovered ? theme->accent : theme->text2, DT_CENTER);
+                DrawPanelText(hdc, d->hFontLabel, texts->panelShowWindow, rcLabel, theme->text, DT_LEFT);
+                break;
+            }
+        }
+    }
+    RECT rcSec = rcSection;
+    DrawPanelText(hdc, d->hFontSection, texts->panelQuickStart, rcSec, theme->text2, DT_LEFT);
+
+    RestoreAlpha(pixels, d->alphaSnapshot, pixelCount);
+#undef CR
+#undef CG
+#undef CB
 }
 
 static void UpdatePanelDisplay(HWND hwnd, PanelData* d) {
@@ -413,17 +483,29 @@ static LRESULT CALLBACK PanelProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             d->hbmBuffer = CreateDIBSection(hdc, (BITMAPINFO*)&bi, DIB_RGB_COLORS, &d->pBits, NULL, 0);
             SelectObject(d->hdcBuffer, d->hbmBuffer);
             // 字号按"字符高度(em)"指定：原来的正数高度是单元格高度，实际字号会随字体内边距漂移
-            d->hFontBig = CreateUiFont(PX(28), FW_SEMIBOLD, TRUE);
+            d->hFontBig = CreateDisplayFont(PX(34));
             d->hFontStatus = CreateUiFont(PX(12), FW_NORMAL, FALSE);
             d->hFontLabel = CreateUiFont(PX(14), FW_NORMAL, FALSE);
+            d->hFontBtn = CreateUiFont(PX(14), FW_SEMIBOLD, FALSE);
             d->hFontSection = CreateUiFont(PX(11), FW_NORMAL, FALSE);
-            d->hFontChip = CreateUiFont(PX(13), FW_NORMAL, FALSE);
+            d->hFontChip = CreateUiFont(PX(13), FW_SEMIBOLD, FALSE);
             d->hFontIcon = CreateFontW(-PX(16), 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET,
                                        0, 0, ANTIALIASED_QUALITY, 0, GetIconFontFamily());
+            d->alphaSnapshot = (BYTE*)malloc((size_t)d->bufWidth * d->bufHeight);
             ReleaseDC(NULL, hdc);
 
+            // 窗口此刻尚未显示：先捕获背后的屏幕做玻璃底图
+            BuildPanelGlass(hwnd, d);
             UpdatePanelDisplay(hwnd, d);
             SetTimer(hwnd, 1, 30, NULL);
+            return 0;
+        }
+
+        case WM_UI_THEME_CHANGED: {
+            // 亮暗色切换：背景快照仍然有效，只需按新主题重建底图并重绘
+            if (!d) return 0;
+            BuildPanelGlass(hwnd, d);
+            UpdatePanelDisplay(hwnd, d);
             return 0;
         }
 
@@ -494,9 +576,13 @@ static LRESULT CALLBACK PanelProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 DeleteObject(d->hFontBig);
                 DeleteObject(d->hFontStatus);
                 DeleteObject(d->hFontLabel);
+                DeleteObject(d->hFontBtn);
                 DeleteObject(d->hFontSection);
                 DeleteObject(d->hFontChip);
                 DeleteObject(d->hFontIcon);
+                free(d->alphaSnapshot);
+                Backdrop_Release(&d->backdrop);
+                GlassCache_Free(&d->glass);
                 free(d);
             }
             g_panelHwnd = NULL;
@@ -533,7 +619,7 @@ void TrayPanel_Shutdown(void) {
 static int ComputeContentHeight(void) {
     int chipCount = g_timerState.presetCount + 1;
     int chipRows = (chipCount + CHIP_COLS - 1) / CHIP_COLS;
-    // 与 RenderPanel 的纵向推进保持一致（分隔线 1px + 上下留白 12px），所有量都随 DPI 缩放
+    // 与 RenderPanel 的纵向推进保持一致（分隔线 1px + 上下留白），所有量都随 DPI 缩放
     return PANEL_PAD_TOP + HEADER_H + PX(12)
          + BTN_H + PX(12) + PX(13)
          + SECTION_H + PX(8)

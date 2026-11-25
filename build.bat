@@ -21,9 +21,10 @@ echo.
 
 REM Step 2: Compile timer program
 gcc -o build\Timmmer.exe ^
-    -Isrc\core -Isrc\ui -Isrc\dialogs -Isrc\audio -Isrc\fonts -Isrc\menu ^
+    -Isrc\core -Isrc\ui -Isrc\dialogs -Isrc\audio -Isrc\fonts -Isrc\menu -Isrc\ipc ^
     src\main_audio_optimized.c ^
     src\core\timer_core.c ^
+    src\ipc\timer_ipc.c ^
     src\ui\timer_ui.c ^
     src\ui\timer_window.c ^
     src\ui\timer_tray.c ^

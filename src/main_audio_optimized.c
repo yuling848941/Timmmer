@@ -21,8 +21,25 @@
 #include "timer_audio.h"
 #include "timer_font_resources.h"
 #include "timer_dialogs.h"
+#include "timer_ipc.h"
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR pCmdLine, int nCmdShow) {
+    (void)hPrevInstance;
+    (void)pCmdLine;
+
+    // 单实例：保证命名管道 \\.\pipe\timmmer 始终对应唯一实例。
+    // 已有实例时激活其窗口并退出。
+    HANDLE hSingleInstance = CreateMutexW(NULL, TRUE, L"Timmmer_SingleInstance_Mutex");
+    if (hSingleInstance && GetLastError() == ERROR_ALREADY_EXISTS) {
+        HWND existing = FindWindowW(L"TimmerClass", NULL);
+        if (existing) {
+            ShowWindow(existing, SW_SHOW);
+            SetForegroundWindow(existing);
+        }
+        CloseHandle(hSingleInstance);
+        return 0;
+    }
+
     // 初始化全局状态
     InitializeGlobalState();
     
@@ -42,9 +59,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR pCmdLin
     HWND hwnd = CreateTimerWindow(hInstance, nCmdShow);
     if (!hwnd) {
         MessageBoxA(NULL, "Failed to create timer window", "Error", MB_OK | MB_ICONERROR);
+        if (hSingleInstance) CloseHandle(hSingleInstance);
         return 1;
     }
-    
+
+    // 启动命名管道 IPC（供 AI agent / 脚本控制与查询）
+    Ipc_Start(hwnd);
+
     // 消息循环
     MSG msg;
     while (GetMessage(&msg, NULL, 0, 0)) {
@@ -85,6 +106,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR pCmdLin
     
     // 清理音频资源
     CleanupAudio();
-    
+
+    // 释放单实例互斥体（IPC 已在 WM_DESTROY 中关闭）
+    if (hSingleInstance) CloseHandle(hSingleInstance);
+
     return (int) msg.wParam;
 }
